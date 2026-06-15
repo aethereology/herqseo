@@ -6,6 +6,7 @@ import {
 } from "@queryclear/shared";
 import { requireTenant } from "../lib/tenant";
 import { signOutOfDashboard } from "./sign-in/actions";
+import { OperatorConsole } from "./OperatorConsole";
 
 export const dynamic = "force-dynamic";
 
@@ -14,24 +15,6 @@ const workflow = [
   { label: "Monitor", value: "5 engines", detail: "Prompt evidence captured" },
   { label: "Draft", value: "1 piece", detail: "Answer-first content" },
   { label: "Approve", value: "Review", detail: "Human gate before publish" }
-];
-
-const opportunities = [
-  {
-    title: "Comparison page gap",
-    evidence: "Perplexity and ChatGPT cite competitors for buying-stage prompts.",
-    status: "Proposed"
-  },
-  {
-    title: "FAQ schema missing",
-    evidence: "Current product pages answer crawler questions without structured data.",
-    status: "Ready for review"
-  },
-  {
-    title: "llms.txt draft",
-    evidence: "Crawler guidance is absent; generated draft is waiting on approval.",
-    status: "Draft"
-  }
 ];
 
 export default async function Home() {
@@ -97,26 +80,11 @@ export default async function Home() {
       </section>
 
       <section className="mx-auto grid w-full max-w-7xl gap-6 px-5 py-7 sm:px-8 lg:grid-cols-[1.2fr_0.8fr] lg:px-10">
-        <div className="rounded border border-line bg-white">
-          <div className="border-b border-line px-5 py-4">
-            <h2 className="text-xl font-semibold text-ink">Review Queue</h2>
-          </div>
-          <div className="divide-y divide-line">
-            {opportunities.map((opportunity) => (
-              <article key={opportunity.title} className="px-5 py-5">
-                <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
-                  <h3 className="text-lg font-semibold text-ink">{opportunity.title}</h3>
-                  <span className="w-fit rounded border border-line px-2.5 py-1 text-xs font-semibold uppercase tracking-wide text-moss">
-                    {opportunity.status}
-                  </span>
-                </div>
-                <p className="mt-3 max-w-3xl text-sm leading-6 text-ink/70">
-                  {opportunity.evidence}
-                </p>
-              </article>
-            ))}
-          </div>
-        </div>
+        <OperatorConsole
+          domainUrl={tenant.activeDomain.url}
+          brand={tenant.organization.name}
+          autonomyModeLabel={AUTONOMY_MODES[activeMode].label}
+        />
 
         <aside className="rounded border border-line bg-ink p-5 text-paper">
           <h2 className="text-xl font-semibold">Guardrails</h2>
