@@ -25,6 +25,7 @@ class RunRequest(BaseModel):
     domain_id: str
     domain_url: str
     brand: str
+    brand_voice: str | None = None
     samples: int = 3
 
 
@@ -43,6 +44,7 @@ class AuditRequest(BaseModel):
     domain_id: str
     domain_url: str
     brand: str | None = None
+    brand_voice: str | None = None
     samples: int = 3
 
 
@@ -113,7 +115,8 @@ def create_app(service: LoopService) -> FastAPI:
     def create_run(req: RunRequest) -> dict[str, Any]:
         summary = service.run(
             org_id=req.org_id, domain_id=req.domain_id,
-            domain_url=req.domain_url, brand=req.brand, samples=req.samples,
+            domain_url=req.domain_url, brand=req.brand,
+            brand_voice=req.brand_voice, samples=req.samples,
         )
         return {
             "run_id": summary.run_id,
@@ -160,6 +163,7 @@ def create_app(service: LoopService) -> FastAPI:
             req.brand or _brand_from_url(req.domain_url),
             org_id=req.org_id,
             domain_id=req.domain_id,
+            brand_voice=req.brand_voice,
             samples=req.samples,
         )
         return _report_json(report)

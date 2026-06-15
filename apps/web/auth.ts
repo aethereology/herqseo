@@ -53,7 +53,11 @@ function buildDevTenant(email: string): AuthenticatedTenant {
       url: requiredEnv("QUERYCLEAR_DEV_DOMAIN_URL", "https://example-b2b-saas.com"),
       cmsType: (process.env.QUERYCLEAR_DEV_CMS_TYPE as CmsType | undefined) ?? "wordpress",
       autonomyMode: readAutonomyMode(process.env.QUERYCLEAR_DEV_AUTONOMY_MODE),
-      status: (process.env.QUERYCLEAR_DEV_DOMAIN_STATUS as DomainStatus | undefined) ?? "onboarding"
+      status: (process.env.QUERYCLEAR_DEV_DOMAIN_STATUS as DomainStatus | undefined) ?? "onboarding",
+      brandVoice: requiredEnv(
+        "QUERYCLEAR_DEV_BRAND_VOICE",
+        "Practical, clear, and founder-led. Technical but understandable. No hype or buzzwords."
+      )
     }
   };
 }

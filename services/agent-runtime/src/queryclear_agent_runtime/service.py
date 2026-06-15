@@ -47,6 +47,14 @@ class LoopService:
     _drafts: dict[str, ContentPiece] = field(default_factory=dict)
     _runs: int = 0
 
+    def _voice_for(self, brand: str, guidelines: str | None) -> BrandVoice:
+        """Per-domain brand voice for this run/audit, falling back to the
+        service default for whatever the caller doesn't supply."""
+        return BrandVoice(
+            brand=brand or self.voice.brand,
+            guidelines=guidelines or self.voice.guidelines,
+        )
+
     def run(
         self,
         *,
@@ -54,6 +62,7 @@ class LoopService:
         domain_id: str,
         domain_url: str,
         brand: str,
+        brand_voice: str | None = None,
         seed_paths: tuple[str, ...] = ("/",),
         samples: int = 3,
     ) -> RunSummary:
@@ -65,7 +74,8 @@ class LoopService:
         draft: ContentPiece | None = None
         if monitoring.opportunities:
             draft = generate_content_draft(
-                self.meter, self.provider, monitoring.opportunities[0], self.voice,
+                self.meter, self.provider, monitoring.opportunities[0],
+                self._voice_for(brand, brand_voice),
                 org_id=org_id, domain_id=domain_id,
             )
             self._drafts[draft.id] = draft
@@ -84,6 +94,7 @@ class LoopService:
         *,
         org_id: str,
         domain_id: str,
+        brand_voice: str | None = None,
         samples: int = 3,
         max_prompts: int = 5,
         seed_paths: tuple[str, ...] = ("/",),
@@ -102,7 +113,8 @@ class LoopService:
         sample: ContentPiece | None = None
         if monitoring.opportunities:
             sample = generate_content_draft(
-                self.meter, self.provider, monitoring.opportunities[0], self.voice,
+                self.meter, self.provider, monitoring.opportunities[0],
+                self._voice_for(brand, brand_voice),
                 org_id=org_id, domain_id=domain_id,
             )
         return AuditReport(
