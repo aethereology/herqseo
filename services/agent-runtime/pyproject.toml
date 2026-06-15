@@ -1,0 +1,13 @@
+[project]
+name = "queryclear-agent-runtime"
+version = "0.0.0"
+description = "QueryClear agent runtime boundary and token metering foundation."
+requires-python = ">=3.11,<3.13"
+dependencies = []
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

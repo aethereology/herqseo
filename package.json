@@ -1,0 +1,26 @@
+{
+  "name": "queryclear",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Autonomous SEO/AEO/GEO operator for mid-market B2B SaaS.",
+  "engines": {
+    "node": ">=20"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "test:py": "python -m unittest discover -s services/agent-runtime/tests",
+    "ci": "npm run lint && npm run typecheck && npm run test && npm run test:py"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.29",
+    "cross-env": "^7.0.3",
+    "typescript": "^5.8.3"
+  }
+}

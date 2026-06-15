@@ -1,0 +1,375 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum PlanTier {
+  operator
+  growth
+  scale
+  agency
+  enterprise
+}
+
+enum AutonomyMode {
+  review
+  auto_publish
+  autopilot
+}
+
+enum UserRole {
+  owner
+  admin
+  member
+}
+
+enum CmsType {
+  wordpress
+  webflow
+  contentful
+  sanity
+  shopify
+}
+
+enum DomainStatus {
+  onboarding
+  active
+  paused
+}
+
+enum AgentStatus {
+  provisioning
+  active
+  paused
+  failed
+}
+
+enum AiEngine {
+  chatgpt
+  google_ai_overviews
+  google_ai_mode
+  gemini
+  perplexity
+  claude
+  copilot
+  grok
+}
+
+enum OpportunityType {
+  content
+  technical
+  citation
+}
+
+enum OpportunityStatus {
+  proposed
+  approved
+  rejected
+  in_progress
+  done
+}
+
+enum ContentStatus {
+  draft
+  pending_approval
+  published
+  failed
+}
+
+enum TechnicalFixType {
+  schema
+  internal_link
+  llms_txt
+  meta
+  crawler_access
+}
+
+enum TechnicalFixStatus {
+  proposed
+  approved
+  applied
+  failed
+}
+
+enum CitationChannel {
+  reddit
+  youtube
+  wikipedia
+  outreach
+}
+
+enum CitationStatus {
+  proposed
+  approved
+  in_progress
+  placed
+  failed
+}
+
+enum ApprovalAction {
+  approve
+  reject
+}
+
+enum IntegrationKind {
+  ga4
+  gsc
+  hubspot
+  salesforce
+  shopify
+  wordpress
+  webflow
+}
+
+enum IntegrationStatus {
+  connected
+  disconnected
+  error
+}
+
+model Organization {
+  id                     String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                   String
+  planTier               PlanTier      @default(operator) @map("plan_tier")
+  stripeCustomerId       String?       @map("stripe_customer_id")
+  tokenBudgetMonthly     Int           @default(1000000) @map("token_budget_monthly")
+  tokenUsedCurrentPeriod Int           @default(0) @map("token_used_current_period")
+  autonomyDefault        AutonomyMode  @default(review) @map("autonomy_default")
+  createdAt              DateTime      @default(now()) @map("created_at")
+  users                  User[]
+  domains                Domain[]
+  integrations           Integration[]
+  modelUsage             ModelUsage[]
+
+  @@map("organizations")
+}
+
+model User {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId          String       @map("org_id") @db.Uuid
+  email          String
+  role           UserRole     @default(member)
+  authProviderId String?      @map("auth_provider_id")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  organization   Organization @relation(fields: [orgId], references: [id])
+  approvals      ApprovalEvent[]
+
+  @@unique([orgId, email])
+  @@index([orgId])
+  @@map("users")
+}
+
+model Domain {
+  id                   String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId                String             @map("org_id") @db.Uuid
+  url                  String
+  cmsType              CmsType            @map("cms_type")
+  cmsCredentialsRef    String?            @map("cms_credentials_ref")
+  brandVoiceProfileRef String?            @map("brand_voice_profile_ref")
+  autonomyMode         AutonomyMode       @default(review) @map("autonomy_mode")
+  status               DomainStatus       @default(onboarding)
+  createdAt            DateTime           @default(now()) @map("created_at")
+  organization         Organization       @relation(fields: [orgId], references: [id])
+  agentInstance        AgentInstance?
+  crawlSnapshots       CrawlSnapshot[]
+  visibilityChecks     VisibilityCheck[]
+  opportunities        Opportunity[]
+  contentPieces        ContentPiece[]
+  technicalFixes       TechnicalFix[]
+  citationCampaigns    CitationCampaign[]
+  approvalEvents       ApprovalEvent[]
+  modelUsage           ModelUsage[]
+  liftMeasurements     LiftMeasurement[]
+
+  @@unique([orgId, url])
+  @@index([orgId])
+  @@map("domains")
+}
+
+model AgentInstance {
+  id                String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId             String      @map("org_id") @db.Uuid
+  domainId          String      @unique @map("domain_id") @db.Uuid
+  hermesInstanceRef String?     @map("hermes_instance_ref")
+  memoryStoreRef    String      @map("memory_store_ref")
+  status            AgentStatus @default(provisioning)
+  lastRunAt         DateTime?   @map("last_run_at")
+  domain            Domain      @relation(fields: [domainId], references: [id])
+
+  @@index([orgId])
+  @@map("agent_instances")
+}
+
+model CrawlSnapshot {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String   @map("org_id") @db.Uuid
+  domainId    String   @map("domain_id") @db.Uuid
+  capturedAt  DateTime @default(now()) @map("captured_at")
+  pageCount   Int      @map("page_count")
+  storageRef  String   @map("storage_ref")
+  domain      Domain   @relation(fields: [domainId], references: [id])
+
+  @@index([orgId, domainId, capturedAt])
+  @@map("crawl_snapshots")
+}
+
+model VisibilityCheck {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId          String    @map("org_id") @db.Uuid
+  domainId       String    @map("domain_id") @db.Uuid
+  engine         AiEngine
+  prompt         String
+  capturedAt     DateTime  @default(now()) @map("captured_at")
+  brandCited     Boolean   @default(false) @map("brand_cited")
+  citationRank   Int?      @map("citation_rank")
+  sentiment      String?
+  shareOfVoice   Decimal?  @map("share_of_voice") @db.Decimal(8, 4)
+  rawResponseRef String    @map("raw_response_ref")
+  domain         Domain    @relation(fields: [domainId], references: [id])
+
+  @@index([orgId, domainId, capturedAt])
+  @@map("visibility_checks")
+}
+
+model Opportunity {
+  id             String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId          String            @map("org_id") @db.Uuid
+  domainId       String            @map("domain_id") @db.Uuid
+  type           OpportunityType
+  priority       Int
+  title          String
+  rationale      String
+  sourcePrompt   String?           @map("source_prompt")
+  sourceEngine   AiEngine?         @map("source_engine")
+  sourceDocRef   String?           @map("source_doc_ref")
+  status         OpportunityStatus @default(proposed)
+  confidence     Decimal?          @db.Decimal(5, 4)
+  domain         Domain            @relation(fields: [domainId], references: [id])
+  contentPieces  ContentPiece[]
+  technicalFixes TechnicalFix[]
+  citationRuns   CitationCampaign[]
+
+  @@index([orgId, domainId, status])
+  @@map("opportunities")
+}
+
+model ContentPiece {
+  id            String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId         String        @map("org_id") @db.Uuid
+  domainId      String        @map("domain_id") @db.Uuid
+  opportunityId String?       @map("opportunity_id") @db.Uuid
+  title         String
+  bodyRef       String        @map("body_ref")
+  schemaJson    Json?         @map("schema_json")
+  status        ContentStatus @default(draft)
+  cmsPostId     String?       @map("cms_post_id")
+  publishedAt   DateTime?     @map("published_at")
+  wordCount     Int           @default(0) @map("word_count")
+  domain        Domain        @relation(fields: [domainId], references: [id])
+  opportunity   Opportunity?  @relation(fields: [opportunityId], references: [id])
+
+  @@index([orgId, domainId, status])
+  @@map("content_pieces")
+}
+
+model TechnicalFix {
+  id            String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId         String             @map("org_id") @db.Uuid
+  domainId      String             @map("domain_id") @db.Uuid
+  opportunityId String?            @map("opportunity_id") @db.Uuid
+  fixType       TechnicalFixType   @map("fix_type")
+  targetUrl     String             @map("target_url")
+  diff          Json
+  status        TechnicalFixStatus @default(proposed)
+  appliedAt     DateTime?          @map("applied_at")
+  domain        Domain             @relation(fields: [domainId], references: [id])
+  opportunity   Opportunity?       @relation(fields: [opportunityId], references: [id])
+
+  @@index([orgId, domainId, status])
+  @@map("technical_fixes")
+}
+
+model CitationCampaign {
+  id            String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId         String         @map("org_id") @db.Uuid
+  domainId      String         @map("domain_id") @db.Uuid
+  opportunityId String?        @map("opportunity_id") @db.Uuid
+  channel       CitationChannel
+  target        String
+  status        CitationStatus @default(proposed)
+  outcome       String?
+  domain        Domain         @relation(fields: [domainId], references: [id])
+  opportunity   Opportunity?   @relation(fields: [opportunityId], references: [id])
+
+  @@index([orgId, domainId, status])
+  @@map("citation_campaigns")
+}
+
+model ApprovalEvent {
+  id         String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId      String         @map("org_id") @db.Uuid
+  domainId   String         @map("domain_id") @db.Uuid
+  entityType String         @map("entity_type")
+  entityId   String         @map("entity_id") @db.Uuid
+  action     ApprovalAction
+  userId     String         @map("user_id") @db.Uuid
+  note       String?
+  createdAt  DateTime       @default(now()) @map("created_at")
+  domain     Domain         @relation(fields: [domainId], references: [id])
+  user       User           @relation(fields: [userId], references: [id])
+
+  @@index([orgId, domainId, createdAt])
+  @@map("approval_events")
+}
+
+model ModelUsage {
+  id           String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId        String       @map("org_id") @db.Uuid
+  domainId     String       @map("domain_id") @db.Uuid
+  taskClass    String       @map("task_class")
+  provider     String
+  model        String
+  inputTokens  Int          @map("input_tokens")
+  outputTokens Int          @map("output_tokens")
+  costUsd      Decimal      @map("cost_usd") @db.Decimal(12, 6)
+  createdAt    DateTime     @default(now()) @map("created_at")
+  organization Organization @relation(fields: [orgId], references: [id])
+  domain       Domain       @relation(fields: [domainId], references: [id])
+
+  @@index([orgId, domainId, createdAt])
+  @@map("model_usage")
+}
+
+model LiftMeasurement {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId             String   @map("org_id") @db.Uuid
+  domainId          String   @map("domain_id") @db.Uuid
+  baselineCheckId   String   @map("baseline_check_id") @db.Uuid
+  followupCheckId   String   @map("followup_check_id") @db.Uuid
+  metric            String
+  delta             Decimal  @db.Decimal(10, 4)
+  measuredAt        DateTime @default(now()) @map("measured_at")
+  domain            Domain   @relation(fields: [domainId], references: [id])
+
+  @@index([orgId, domainId, measuredAt])
+  @@map("lift_measurements")
+}
+
+model Integration {
+  id             String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId          String            @map("org_id") @db.Uuid
+  kind           IntegrationKind
+  credentialsRef String            @map("credentials_ref")
+  status         IntegrationStatus @default(disconnected)
+  connectedAt    DateTime?         @map("connected_at")
+  organization   Organization      @relation(fields: [orgId], references: [id])
+
+  @@unique([orgId, kind])
+  @@index([orgId])
+  @@map("integrations")
+}
