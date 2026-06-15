@@ -39,7 +39,7 @@ The loop, end to end, once: crawl one site → run visibility prompts → create
 - [ ] **P1-3** Domain ingestion: crawl + store a customer's site structure and content.
 - [ ] **P1-4** Monitoring engine v1: audit brand visibility across 5 AI engines. See `specs/monitoring-engine.md`.
 - [ ] **P1-5** Opportunity generation: produce 10 prioritized, explainable recommendations.
-- [ ] **P1-6** Content engine v1: generate answer-first content with brand-voice training. See `specs/content-engine.md`.
+- [~] **P1-6** Content engine v1: generate answer-first content with brand-voice training. See `specs/content-engine.md`. *Per-domain brand voice now flows end-to-end (Session 18): `DomainSummary.brandVoice` → web proxy → runtime `brand_voice` → `LoopService._voice_for()` → content system prompt. Fixed a latent bug where drafts ignored the requested brand and used the default. Still to do: **training** the voice from the customer's own site/docs (currently a guideline string).*
 - [ ] **P1-7** WordPress publishing connector. See `docs/integrations.md`.
 - [ ] **P1-8** Autonomy slider — "Review" mode only: human approval gate before publish.
 - [ ] **P1-9** Lift measurement: re-audit after 30 days, attribute change.

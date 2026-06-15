@@ -133,6 +133,8 @@ export interface DomainSummary {
   cmsType: CmsType;
   autonomyMode: AutonomyMode;
   status: DomainStatus;
+  /** Brand-voice guidelines used when generating content for this domain. */
+  brandVoice: string;
 }
 
 export interface UserSummary {

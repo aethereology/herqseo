@@ -108,6 +108,52 @@ class LoopServiceTest(unittest.TestCase):
         with self.assertRaises(LoopError):
             _service(cite=False).get_draft("nope")
 
+    def test_run_uses_per_domain_brand_voice(self) -> None:
+        class _CapturingProvider(_FakeProvider):
+            def __init__(self) -> None:
+                super().__init__(cite=False)
+                self.systems: list[str] = []
+
+            def complete(self, request, prompt, *, system=None):
+                if request.task_class == "content_generation":
+                    self.systems.append(system or "")
+                return super().complete(request, prompt, system=system)
+
+        service = _service(cite=False)
+        provider = _CapturingProvider()
+        service.provider = provider
+        service.run(
+            org_id="org_1", domain_id="domain_1",
+            domain_url="https://example.com", brand="Globex",
+            brand_voice="Wry and concise.", samples=2,
+        )
+
+        self.assertTrue(provider.systems)
+        system = provider.systems[0]
+        self.assertIn("Globex", system)  # requested brand, not the default voice's
+        self.assertIn("Wry and concise.", system)
+
+    def test_run_falls_back_to_default_voice_guidelines(self) -> None:
+        class _CapturingProvider(_FakeProvider):
+            def __init__(self) -> None:
+                super().__init__(cite=False)
+                self.systems: list[str] = []
+
+            def complete(self, request, prompt, *, system=None):
+                if request.task_class == "content_generation":
+                    self.systems.append(system or "")
+                return super().complete(request, prompt, system=system)
+
+        service = _service(cite=False)
+        provider = _CapturingProvider()
+        service.provider = provider
+        service.run(
+            org_id="org_1", domain_id="domain_1",
+            domain_url="https://example.com", brand="QueryClear", samples=2,
+        )
+
+        self.assertIn("Plain and direct.", provider.systems[0])  # service default
+
 
 if __name__ == "__main__":
     unittest.main()

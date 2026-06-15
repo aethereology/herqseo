@@ -13,7 +13,8 @@ export async function POST() {
       orgId: tenant.organization.id,
       domainId: tenant.activeDomain.id,
       domainUrl: tenant.activeDomain.url,
-      brand: tenant.organization.name
+      brand: tenant.organization.name,
+      brandVoice: tenant.activeDomain.brandVoice
     });
     return NextResponse.json(result);
   } catch (error) {

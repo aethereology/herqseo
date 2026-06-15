@@ -101,6 +101,7 @@ export function runLoop(input: {
   domainId: string;
   domainUrl: string;
   brand: string;
+  brandVoice?: string;
   samples?: number;
 }): Promise<RunResponse> {
   return call<RunResponse>("/runs", {
@@ -110,6 +111,7 @@ export function runLoop(input: {
       domain_id: input.domainId,
       domain_url: input.domainUrl,
       brand: input.brand,
+      brand_voice: input.brandVoice,
       samples: input.samples ?? 3
     })
   });
@@ -130,6 +132,7 @@ export function runAudit(input: {
   domainId: string;
   domainUrl: string;
   brand?: string;
+  brandVoice?: string;
   samples?: number;
 }): Promise<AuditReportData> {
   return call<AuditReportData>("/audit", {
@@ -139,6 +142,7 @@ export function runAudit(input: {
       domain_id: input.domainId,
       domain_url: input.domainUrl,
       brand: input.brand,
+      brand_voice: input.brandVoice,
       samples: input.samples ?? 3
     })
   });
