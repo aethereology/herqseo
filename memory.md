@@ -138,6 +138,14 @@
 - Decision context (Wix vs WordPress): founder has a Wix site, asked if it's a better connector. Assessment recorded — WordPress stays strategic connector #1 (app-password auth is low-friction; takes HTML directly; full technical-SEO control: schema/llms.txt/meta; ICP skews WP). Wix is worth building as a *validation vehicle* (founder owns one, we have no WP) and a second connector, but it's higher-friction (account API key + Site ID or a Wix App; Ricos rich-content format; lower technical-SEO ceiling). Not yet built.
 - Next: per-domain BrandVoice, or persist ContentPiece/Opportunity/AuditEvent, or a CMS connector (Wix as validation / WP verify()); then M0-1 Hermes.
 
+### Session 14 — WordPress.com finding + live audit→draft on a real site — 2026-06-15
+- Founder added WordPress creds to `services/agent-runtime/.env` but they were behind the `#` comment markers from the template — uncommented them (in place, values not exposed). Site: `mortgagebyhumans.wordpress.com` (WordPress.com-hosted, not self-hosted).
+- **Key finding (see Q3):** WordPress.com rejects app-password Basic auth (401); self-hosted `/wp-json/wp/v2` is 404 there. Our connector can't publish to WP.com — needs OAuth2. Recorded so we don't retry this. Self-hosted WordPress.org is the connector's actual target and the ICP norm.
+- Ran the real **audit→draft** (no publish) against the site with the founder's OpenAI key: crawl → 5 model-seeded buyer-intent mortgage queries (all 0/2 cited) → 5 opportunities → a genuinely client-grade first-time-homebuyer draft (FHA/VA/USDA/conventional), correct, on-voice (a mortgage `BrandVoice` I passed manually), **no fabricated rates** (guardrail held). 12 calls, 343 in / 2866 out, **~$0.008**.
+- Real on-page finding surfaced by the crawl: the homepage `<title>` is duplicated/broken (`mortgagebyhumansmortgagebyhumansWordPress.com`) — a legit technical SEO issue.
+- Evidence that **per-domain BrandVoice** matters (hardcoded it for quality) — strong candidate for next build. For publish validation, use a **self-hosted WordPress** (connector works today).
+- No code changes this session; nothing committed (only the gitignored `.env` was edited).
+
 ### Session 0 — Project scaffold created
 - Created the documentation and spec scaffold: `CLAUDE.md`, `memory.md`, `PROGRESS.md`, `README.md`, `CONTRIBUTING.md`, full `docs/` and `specs/` trees.
 - No code yet. The strategy is locked (see `docs/strategic-brief.md`); engineering decisions captured in `docs/tech-stack.md` and `docs/architecture.md`.
@@ -177,7 +185,7 @@ TEMPLATE FOR NEW ENTRIES — copy this block:
 
 - **Q1:** Final job-orchestration choice — Temporal vs. BullMQ for MVP. Leaning Temporal for durability; confirm when building the monitor→publish loop.
 - **Q2 (RESOLVED — D11, D12):** TS↔Python boundary is a thin FastAPI service (D11); Python DB access is **SQLAlchemy Core** (D12). Both settled.
-- **Q3:** First CMS integration target confirmed as WordPress; Webflow second. Validate API auth flow before committing the connector interface in `packages/integrations`.
+- **Q3:** CMS targets: WordPress (self-hosted/.org) first, Webflow second. **Finding (Session 14):** WordPress**.com**-hosted sites do NOT accept application passwords (`/wp-json/wp/v2` 404; WP.com `wp/v2` proxy returns 401 "requires authentication against the correct blog") — they require **OAuth2**. Our `WordPressPublisher` (app-password Basic auth) targets **self-hosted WordPress.org**, which is what our ICP runs. A WordPress.com connector would be a separate OAuth build (treat as roadmap, not MVP). Same OAuth friction applies to Wix/other hosted platforms.
 - **Q4:** Per-customer agent isolation model — container-per-customer vs. shared runtime with tenant context. Affects infra cost and blast radius; decide before scaling past design partners.
 - **Q5:** Next/PostCSS audit path — npm reports a moderate advisory in Next's nested `postcss@8.4.31`; wait for a non-breaking Next/PostCSS resolution or validate a safe override before production use.
 - **Q6:** Production auth provider — Auth.js is installed but currently uses a development credentials provider. Choose production provider/adapter path, likely Auth.js + Prisma-backed lookup, before real customer access.
