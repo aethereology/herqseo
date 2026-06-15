@@ -32,9 +32,13 @@ def _looks_duplicated(title: str) -> bool:
     """True if the title repeats a meaningful block back-to-back (e.g. a site
     name doubled by a broken title template)."""
     normalized = re.sub(r"[^a-z0-9]+", "", title.lower())
-    if len(normalized) < 8:
+    if len(normalized) < 6:
         return False
     half = len(normalized) // 2
+    # exact doubling (e.g. "AcmeAcme")
+    if len(normalized) % 2 == 0 and normalized[:half] == normalized[half:]:
+        return True
+    # a meaningful prefix repeated back-to-back, even with trailing text
     for size in range(6, half + 1):
         segment = normalized[:size]
         if normalized.startswith(segment * 2):

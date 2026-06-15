@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from .audit import AuditReport
 from .content import (
     BrandVoice,
     ContentPiece,
@@ -13,6 +14,7 @@ from .metering import TokenMeter
 from .monitoring import Opportunity, run_monitoring
 from .providers import ModelProvider
 from .publishing import AuditEvent, CmsPublisher, PublishOutcome, publish_content
+from .technical import audit_snapshot
 
 
 class LoopError(RuntimeError):
@@ -73,6 +75,40 @@ class LoopService:
             domain_id=domain_id,
             opportunities=monitoring.opportunities,
             draft=draft,
+        )
+
+    def audit(
+        self,
+        domain_url: str,
+        brand: str,
+        *,
+        org_id: str,
+        domain_id: str,
+        samples: int = 3,
+        max_prompts: int = 5,
+        seed_paths: tuple[str, ...] = ("/",),
+    ) -> AuditReport:
+        """Read-only audit: crawl → technical findings + invisible-query check +
+        one sample draft. No state stored, no publish — the sales deliverable."""
+        snapshot = crawl_site(self.fetcher, domain_url, seed_paths)
+        findings = audit_snapshot(snapshot)
+        monitoring = run_monitoring(
+            self.meter, self.provider, snapshot, brand,
+            org_id=org_id, domain_id=domain_id, samples=samples, max_prompts=max_prompts,
+        )
+        sample: ContentPiece | None = None
+        if monitoring.opportunities:
+            sample = generate_content_draft(
+                self.meter, self.provider, monitoring.opportunities[0], self.voice,
+                org_id=org_id, domain_id=domain_id,
+            )
+        return AuditReport(
+            domain_url=domain_url,
+            page_title=snapshot.pages[0].title if snapshot.pages else "",
+            findings=tuple(findings),
+            checks=monitoring.checks,
+            opportunities=monitoring.opportunities,
+            sample_draft=sample,
         )
 
     def get_draft(self, draft_id: str) -> ContentPiece:

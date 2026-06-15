@@ -40,6 +40,7 @@ from .monitoring import (
     run_monitoring,
     run_visibility_checks,
 )
+from .audit import AuditReport
 from .service import (
     LoopError,
     LoopService,
@@ -76,6 +77,7 @@ __all__ = [
     "AgentRuntime",
     "AgentTask",
     "ApprovalRequired",
+    "AuditReport",
     "AuditEvent",
     "BrandVoice",
     "BudgetExceeded",
