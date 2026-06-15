@@ -18,6 +18,7 @@ from queryclear_agent_runtime import (  # noqa: E402
     VisibilityPrompt,
     derive_prompts,
     generate_opportunities,
+    generate_prompts,
     run_monitoring,
     run_visibility_checks,
 )
@@ -68,6 +69,56 @@ class DerivePromptsTest(unittest.TestCase):
     def test_respects_max_prompts(self) -> None:
         prompts = derive_prompts(_snapshot(), brand="QueryClear", max_prompts=1)
         self.assertEqual(len(prompts), 1)
+
+
+class GeneratePromptsTest(unittest.TestCase):
+    def test_generates_buyer_intent_prompts_metered(self) -> None:
+        meter, repo = _meter()
+        provider = _FakeProvider(
+            lambda p: "best ai seo tool for b2b saas\nhow to get cited by chatgpt\nbest geo platform"
+        )
+
+        prompts = generate_prompts(
+            meter, provider, _snapshot(), "QueryClear",
+            org_id="org_1", domain_id="domain_1", max_prompts=2,
+        )
+
+        self.assertEqual(len(prompts), 2)  # capped at max_prompts
+        self.assertEqual(prompts[0].query, "best ai seo tool for b2b saas")
+        self.assertTrue(all(p.brand == "QueryClear" for p in prompts))
+        # one seeding call, metered as classification
+        self.assertEqual(len(repo.records), 1)
+        self.assertEqual(repo.records[0].task_class, "classification")
+
+    def test_cleans_numbering_and_quotes(self) -> None:
+        meter, _ = _meter()
+        provider = _FakeProvider(
+            lambda p: '1. "best invoice automation"\n- best saas billing\n2) cloud accounting'
+        )
+
+        prompts = generate_prompts(
+            meter, provider, _snapshot(), "QueryClear",
+            org_id="org_1", domain_id="domain_1",
+        )
+
+        self.assertEqual(
+            [p.query for p in prompts],
+            ["best invoice automation", "best saas billing", "cloud accounting"],
+        )
+
+    def test_falls_back_to_titles_when_model_blank(self) -> None:
+        meter, _ = _meter()
+        provider = _FakeProvider(lambda p: "   \n  ")
+
+        prompts = generate_prompts(
+            meter, provider, _snapshot(), "QueryClear",
+            org_id="org_1", domain_id="domain_1",
+        )
+
+        self.assertEqual(
+            [p.query for p in prompts],
+            [p.query for p in derive_prompts(_snapshot(), "QueryClear")],
+        )
 
 
 class RunVisibilityChecksTest(unittest.TestCase):
@@ -134,6 +185,8 @@ class RunMonitoringTest(unittest.TestCase):
         meter, repo = _meter()
 
         def responder(prompt: str) -> str:
+            if "buyer-intent" in prompt:  # the prompt-seeding (classification) call
+                return "best invoice automation for saas\nbest saas pricing tools"
             # brand cited for the pricing query, invisible for invoice automation
             return "Try QueryClear." if "pricing" in prompt.lower() else "Use something else."
 
@@ -144,9 +197,9 @@ class RunMonitoringTest(unittest.TestCase):
             org_id="org_1", domain_id="domain_1", samples=2,
         )
 
-        self.assertEqual(len(result.checks), 2)  # 2 titled pages
-        self.assertEqual(len(repo.records), 4)  # 2 prompts x 2 samples, all metered
-        self.assertEqual(len(result.usage_record_ids), 4)
+        self.assertEqual(len(result.checks), 2)  # 2 seeded prompts
+        self.assertEqual(len(repo.records), 5)  # 1 seeding + 2 prompts x 2 samples
+        self.assertEqual(len(result.usage_record_ids), 4)  # monitoring usage only
         # only the invisible query produces an opportunity
         self.assertEqual(len(result.opportunities), 1)
         self.assertIn("invoice automation", result.opportunities[0].title.lower())

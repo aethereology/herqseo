@@ -39,7 +39,9 @@ class _FakeProvider:
     generation returns a draft body."""
 
     def complete(self, request, prompt, *, system=None) -> ModelResponse:
-        if request.task_class == "monitoring":
+        if request.task_class == "classification":
+            content = "best invoice automation for saas"  # one seeded prompt
+        elif request.task_class == "monitoring":
             content = "I'd recommend a competitor."
         else:
             content = "## Direct answer\nQueryClear automates invoicing for SaaS teams."
@@ -100,8 +102,8 @@ class OperatorLoopEndToEndTest(unittest.TestCase):
         self.assertEqual(len(audit), 1)
         self.assertEqual(audit[0].metadata["usage_record_id"], piece.usage_record_id)
 
-        # every model call was metered: 2 monitoring samples + 1 content draft
-        self.assertEqual(len(repo.records), 3)
+        # every model call was metered: 1 prompt-seeding + 2 monitoring + 1 content
+        self.assertEqual(len(repo.records), 4)
         self.assertGreater(repo.get_budget("org_1").used_tokens, 0)
 
 

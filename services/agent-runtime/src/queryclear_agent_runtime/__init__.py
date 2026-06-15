@@ -31,6 +31,7 @@ from .monitoring import (
     VisibilityPrompt,
     derive_prompts,
     generate_opportunities,
+    generate_prompts,
     run_monitoring,
     run_visibility_checks,
 )
@@ -110,6 +111,7 @@ __all__ = [
     "derive_prompts",
     "generate_content_draft",
     "generate_opportunities",
+    "generate_prompts",
     "parse_page",
     "publish_content",
     "review_content",

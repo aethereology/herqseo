@@ -32,7 +32,9 @@ class _FakeProvider:
         self._cite = cite
 
     def complete(self, request, prompt, *, system=None) -> ModelResponse:
-        if request.task_class == "monitoring":
+        if request.task_class == "classification":
+            content = "best invoice automation for saas"  # one seeded prompt
+        elif request.task_class == "monitoring":
             content = "Try QueryClear." if self._cite else "Use a competitor."
         else:
             content = "## Answer\nQueryClear automates invoices."

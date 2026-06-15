@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from .crawl import SiteSnapshot
@@ -10,6 +11,11 @@ from .providers import ModelProvider, run_model
 # engine probe. Multi-engine sampling is P1-4.
 _MONITORING_MODEL = "gpt-4.1-mini"
 _MAX_OUTPUT_TOKENS = 256
+
+# Prompt seeding uses a cheap model to turn crawled content into buyer-intent
+# queries (see derive_prompts for the deterministic fallback).
+_PROMPT_SEEDING_MODEL = "gpt-4.1-mini"
+_MAX_SEED_OUTPUT_TOKENS = 300
 
 
 @dataclass(frozen=True)
@@ -55,10 +61,10 @@ class MonitoringResult:
 def derive_prompts(
     snapshot: SiteSnapshot, brand: str, *, max_prompts: int = 5
 ) -> list[VisibilityPrompt]:
-    """Seed visibility prompts from crawled page titles.
+    """Deterministic fallback: seed prompts from crawled page titles.
 
-    M0 uses a deterministic template; model-assisted prompt seeding from the
-    brand's category and discovered gaps is P1-4 (see monitoring-engine.md).
+    Used when model-backed seeding (`generate_prompts`) is unavailable or returns
+    nothing, so the loop never dies on a seeding hiccup.
     """
     prompts: list[VisibilityPrompt] = []
     for page in snapshot.pages:
@@ -74,6 +80,73 @@ def derive_prompts(
         if len(prompts) >= max_prompts:
             break
     return prompts
+
+
+def _site_context(snapshot: SiteSnapshot, *, max_pages: int = 5, max_chars: int = 1500) -> str:
+    lines: list[str] = []
+    for page in snapshot.pages[:max_pages]:
+        bits = [page.title, *page.headings]
+        line = " — ".join(b for b in bits if b)
+        if line:
+            lines.append(line)
+    return "\n".join(lines)[:max_chars]
+
+
+def _parse_queries(text: str, max_prompts: int) -> list[str]:
+    queries: list[str] = []
+    for raw in text.splitlines():
+        # strip leading list markers / numbering / markdown, then quotes
+        query = re.sub(r"^[\s\-\*\#\d\.\)]+", "", raw).strip().strip("\"'").strip()
+        if query:
+            queries.append(query)
+        if len(queries) >= max_prompts:
+            break
+    return queries
+
+
+def generate_prompts(
+    meter: TokenMeter,
+    provider: ModelProvider,
+    snapshot: SiteSnapshot,
+    brand: str,
+    *,
+    org_id: str,
+    domain_id: str,
+    max_prompts: int = 5,
+    model: str = _PROMPT_SEEDING_MODEL,
+) -> list[VisibilityPrompt]:
+    """Seed visibility prompts as natural buyer-intent queries generated from the
+    crawled site (metered). Falls back to `derive_prompts` if there is no site
+    context or the model returns nothing parseable."""
+    context = _site_context(snapshot)
+    if not context:
+        return derive_prompts(snapshot, brand, max_prompts=max_prompts)
+
+    prompt = (
+        f"A potential buyer is using AI assistants to find solutions like {brand}.\n"
+        f"From the company's site content below, write {max_prompts} natural, "
+        "buyer-intent search queries they would actually type — category and "
+        "problem queries, NOT the brand name. One query per line; no numbering, "
+        "no quotes.\n\n"
+        f"Site content:\n{context}"
+    )
+    request = ModelRequest(
+        org_id=org_id,
+        domain_id=domain_id,
+        task_class="classification",
+        provider="openai",
+        model=model,
+        estimated_input_tokens=max(64, len(prompt) // 4),
+        max_output_tokens=_MAX_SEED_OUTPUT_TOKENS,
+    )
+    call = run_model(meter, provider, request, prompt)
+    queries = _parse_queries(call.response.content, max_prompts)
+    if not queries:
+        return derive_prompts(snapshot, brand, max_prompts=max_prompts)
+    return [
+        VisibilityPrompt(id=f"vp-{i}", query=query, brand=brand)
+        for i, query in enumerate(queries)
+    ]
 
 
 def run_visibility_checks(
@@ -167,7 +240,10 @@ def run_monitoring(
 ) -> MonitoringResult:
     """The M0-3 loop: crawled site -> seeded prompts -> metered visibility
     checks -> prioritized opportunities."""
-    prompts = derive_prompts(snapshot, brand, max_prompts=max_prompts)
+    prompts = generate_prompts(
+        meter, provider, snapshot, brand,
+        org_id=org_id, domain_id=domain_id, max_prompts=max_prompts,
+    )
     checks = run_visibility_checks(
         meter, provider, org_id, domain_id, prompts, samples=samples, model=model
     )
