@@ -23,7 +23,7 @@
 **Last updated:** Session 2 (initial runnable monorepo scaffold).
 **What runs today:** `npm run ci`, `npm run build`, and `npm run test:py` pass. The web shell runs from `apps/web` with `npx next dev -H 127.0.0.1 -p 3000`.
 **Next concrete step:** Finish `P0-5` auth + tenant context in `apps/web`, then continue `M0-1` by replacing the in-memory `HermesAgentRuntime` placeholder with a real Hermes-backed implementation.
-**Known broken / incomplete:** No real auth, DB server, DB-backed budget repository, Hermes install, OpenAI provider call, crawler, WordPress connector, or approval action yet. `npm audit` reports 2 moderate advisories from Next's nested `postcss@8.4.31`; npm's suggested fix is breaking. In-app Browser was unavailable in this session (`agent.browsers.list()` returned `[]`), so visual verification used build + HTTP checks only.
+**Known broken / incomplete:** No real auth, DB server, DB-backed budget repository, Hermes install, OpenAI provider call, crawler, WordPress connector, or approval action yet. `npm audit` reports 2 moderate advisories from Next's nested `postcss@8.4.31`; npm's suggested fix is breaking. In-app Browser was unavailable in Session 2 (`agent.browsers.list()` returned `[]`), so visual verification used build + HTTP checks only. GitHub remote is `https://github.com/aethereology/herqseo.git`; local `main` is ahead of `origin/main` by commit `c667120 ci: add CI workflow`, but pushing is blocked until the GitHub credential has `workflow` scope.
 
 ---
 
@@ -48,6 +48,12 @@
 - What's in progress / half-done: `M0-1` has the interface and placeholder runtime only; `M0-6` has a static UI shell only; no actual loop execution exists yet.
 - What the next session should do first: implement `P0-5` tenant/auth context, then make `TokenMeter` persist to Postgres via `model_usage` and wire a real OpenAI-only model path through the meter.
 - Gotchas / things that bit me: `npm run dev -- --hostname/--port` is parsed incorrectly on this Windows/npm setup; use `npx next dev -H 127.0.0.1 -p 3000` from `apps/web`. In-app Browser was unavailable, so no screenshot verification was possible.
+
+### Session 3 — GitHub remote confirmed — 2026-06-15
+- What I did: confirmed `origin` is `https://github.com/aethereology/herqseo.git`, fetched `origin`, and checked local/remote branch state.
+- Repo state: `main` is clean but ahead of `origin/main` by one local commit: `c667120 ci: add CI workflow`, which adds `.github/workflows/ci.yml`.
+- Push attempt: `git push origin main` was rejected by GitHub because the configured Personal Access Token cannot create/update workflow files without the `workflow` scope.
+- Next session should either use a GitHub credential with `workflow` scope and push `main`, or decide to move/remove the workflow commit before pushing.
 
 ### Session 0 — Project scaffold created
 - Created the documentation and spec scaffold: `CLAUDE.md`, `memory.md`, `PROGRESS.md`, `README.md`, `CONTRIBUTING.md`, full `docs/` and `specs/` trees.
