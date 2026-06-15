@@ -63,7 +63,18 @@ class _DemoPublisher:
         )
 
 
+def _load_env() -> None:
+    # Load services/agent-runtime/.env (and parent .env) if python-dotenv is
+    # installed. Real secrets live here, never committed (.env is gitignored).
+    try:
+        from dotenv import find_dotenv, load_dotenv
+    except ImportError:
+        return
+    load_dotenv(find_dotenv(usecwd=True))
+
+
 def build_service() -> LoopService:
+    _load_env()
     org_id = os.environ.get("QUERYCLEAR_DEV_ORG_ID", "org_dev_queryclear")
     budget = int(os.environ.get("QUERYCLEAR_TOKEN_BUDGET", "1000000"))
 
