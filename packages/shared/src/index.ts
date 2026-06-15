@@ -48,6 +48,8 @@ export const TASK_CLASSES = [
 export type TaskClass = (typeof TASK_CLASSES)[number];
 
 export type CmsType = "wordpress" | "webflow" | "contentful" | "sanity" | "shopify";
+export type UserRole = "owner" | "admin" | "member";
+export type DomainStatus = "onboarding" | "active" | "paused";
 
 export type OpportunityType = "content" | "technical" | "citation";
 export type OpportunityStatus =
@@ -113,6 +115,37 @@ export interface TenantContext {
   orgId: string;
   domainId?: string;
   userId?: string;
+}
+
+export interface OrganizationSummary {
+  id: string;
+  name: string;
+  planTier: PlanTier;
+  tokenBudgetMonthly: number;
+  tokenUsedCurrentPeriod: number;
+  autonomyDefault: AutonomyMode;
+}
+
+export interface DomainSummary {
+  id: string;
+  orgId: string;
+  url: string;
+  cmsType: CmsType;
+  autonomyMode: AutonomyMode;
+  status: DomainStatus;
+}
+
+export interface UserSummary {
+  id: string;
+  orgId: string;
+  email: string;
+  role: UserRole;
+}
+
+export interface AuthenticatedTenant {
+  user: UserSummary;
+  organization: OrganizationSummary;
+  activeDomain: DomainSummary;
 }
 
 export interface AgentHandle {

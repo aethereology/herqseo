@@ -2,15 +2,12 @@ import {
   AUTONOMY_MODES,
   AI_ENGINES,
   PLAN_LIMITS,
-  type AutonomyMode,
-  type PlanTier
+  type AutonomyMode
 } from "@queryclear/shared";
+import { requireTenant } from "../lib/tenant";
+import { signOutOfDashboard } from "./sign-in/actions";
 
-const activePlan: PlanTier = "operator";
-const activeMode: AutonomyMode = "review";
-const plan = PLAN_LIMITS[activePlan];
-const contentLimit =
-  plan.maxContentPerMonth === null ? "Unlimited" : plan.maxContentPerMonth.toString();
+export const dynamic = "force-dynamic";
 
 const workflow = [
   { label: "Crawl", value: "1 domain", detail: "B2B SaaS site baseline" },
@@ -37,25 +34,53 @@ const opportunities = [
   }
 ];
 
-export default function Home() {
+export default async function Home() {
+  const tenant = await requireTenant();
+  const activePlan = tenant.organization.planTier;
+  const activeMode: AutonomyMode = tenant.activeDomain.autonomyMode;
+  const plan = PLAN_LIMITS[activePlan];
+  const contentLimit =
+    plan.maxContentPerMonth === null ? "Unlimited" : plan.maxContentPerMonth.toString();
+  const tokenUsed = tenant.organization.tokenUsedCurrentPeriod.toLocaleString();
+  const tokenBudget = tenant.organization.tokenBudgetMonthly.toLocaleString();
+
   return (
     <main className="min-h-screen">
       <section className="border-b border-line bg-paper">
         <div className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-5 py-6 sm:px-8 lg:px-10">
-          <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-start">
+          <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-start">
             <div>
               <p className="text-sm font-semibold uppercase tracking-wide text-moss">
-                QueryClear Control Plane
+                {tenant.organization.name}
               </p>
               <h1 className="mt-3 max-w-3xl text-4xl font-semibold leading-tight text-ink sm:text-5xl">
                 Operator loop for one domain, one draft, one approval gate.
               </h1>
+              <div className="mt-5 flex flex-wrap gap-2 text-sm text-ink/70">
+                <span className="rounded border border-line bg-white px-2.5 py-1">
+                  {tenant.activeDomain.url}
+                </span>
+                <span className="rounded border border-line bg-white px-2.5 py-1 capitalize">
+                  {tenant.user.role}
+                </span>
+                <span className="rounded border border-line bg-white px-2.5 py-1">
+                  {tenant.user.email}
+                </span>
+              </div>
             </div>
-            <div className="grid min-w-64 grid-cols-2 gap-3 rounded border border-line bg-white p-4">
-              <Metric label="Plan" value={activePlan} />
-              <Metric label="Mode" value={activeMode} />
-              <Metric label="Monthly tokens" value={plan.tokenBudgetMonthly.toLocaleString()} />
+            <div className="grid gap-3 rounded border border-line bg-white p-4 sm:grid-cols-2 lg:min-w-80">
+              <Metric label="Plan" value={activePlan} capitalize />
+              <Metric label="Mode" value={AUTONOMY_MODES[activeMode].label} />
+              <Metric label="Tokens used" value={`${tokenUsed} / ${tokenBudget}`} />
               <Metric label="Content/mo" value={contentLimit} />
+              <form action={signOutOfDashboard} className="sm:col-span-2">
+                <button
+                  className="w-full rounded border border-line px-3 py-2 text-sm font-semibold text-ink transition hover:bg-paper"
+                  type="submit"
+                >
+                  Sign out
+                </button>
+              </form>
             </div>
           </div>
 
@@ -99,6 +124,7 @@ export default function Home() {
             <Guardrail label="Autonomy" value={AUTONOMY_MODES[activeMode].label} />
             <Guardrail label="Engines" value={AI_ENGINES.slice(0, plan.maxEngines).join(", ")} />
             <Guardrail label="Publish target" value="Staging or draft only" />
+            <Guardrail label="Tenant" value={`${tenant.organization.id} / ${tenant.activeDomain.id}`} />
             <Guardrail label="Budget rule" value="Meter before every model call" />
           </div>
         </aside>
@@ -107,11 +133,21 @@ export default function Home() {
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
+function Metric({
+  label,
+  value,
+  capitalize = false
+}: {
+  label: string;
+  value: string;
+  capitalize?: boolean;
+}) {
   return (
     <div>
       <div className="text-xs font-medium uppercase tracking-wide text-moss">{label}</div>
-      <div className="mt-1 text-lg font-semibold capitalize text-ink">{value}</div>
+      <div className={`mt-1 text-lg font-semibold text-ink ${capitalize ? "capitalize" : ""}`}>
+        {value}
+      </div>
     </div>
   );
 }

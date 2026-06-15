@@ -13,7 +13,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked
 - [x] **P0-2** Set up `packages/db`: Postgres + Prisma schema, multi-tenant base tables, **row-level security** policies.
 - [x] **P0-3** Set up `packages/shared`: typed contracts/constants shared across TS and consumed by Python.
 - [x] **P0-4** Build the **token-metering wrapper** (all model calls route through it; enforces per-tenant budgets). See `docs/pricing-and-tiers.md`.
-- [ ] **P0-5** Auth + tenant model (`apps/web`): org → users → domains. Tenant context threaded everywhere.
+- [x] **P0-5** Auth + tenant model (`apps/web`): org → users → domains. Tenant context threaded everywhere.
 - [x] **P0-6** `.env.example` + secrets handling; CI skeleton (lint, typecheck, test).
 
 ## Milestone 0 — Prove the operator loop (do this BEFORE Phase 1 breadth)
@@ -76,4 +76,5 @@ The loop, end to end, once: crawl one site → run visibility prompts → create
 
 - [ ] Wire `services/agent-runtime` to real Hermes installation and replace the in-memory placeholder.
 - [ ] Add a real DB-backed `BudgetRepository` that writes `model_usage` and updates organization usage counters.
+- [ ] Replace the development Auth.js credentials provider with production auth + Prisma-backed org/user/domain lookup.
 - [ ] Resolve `npm audit` moderate advisory from Next's nested `postcss@8.4.31` when a non-breaking patched Next/PostCSS path is available.

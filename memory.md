@@ -20,10 +20,10 @@
 ## Current State (overwrite each session)
 
 **Phase:** Phase 0 scaffold started.
-**Last updated:** Session 2 (initial runnable monorepo scaffold).
-**What runs today:** `npm run ci`, `npm run build`, and `npm run test:py` pass. The web shell runs from `apps/web` with `npx next dev -H 127.0.0.1 -p 3000`.
-**Next concrete step:** Finish `P0-5` auth + tenant context in `apps/web`, then continue `M0-1` by replacing the in-memory `HermesAgentRuntime` placeholder with a real Hermes-backed implementation.
-**Known broken / incomplete:** No real auth, DB server, DB-backed budget repository, Hermes install, OpenAI provider call, crawler, WordPress connector, or approval action yet. `npm audit` reports 2 moderate advisories from Next's nested `postcss@8.4.31`; npm's suggested fix is breaking. In-app Browser was unavailable in Session 2 (`agent.browsers.list()` returned `[]`), so visual verification used build + HTTP checks only. GitHub remote is `https://github.com/aethereology/herqseo.git`; local `main` is ahead of `origin/main` by commit `c667120 ci: add CI workflow`, but pushing is blocked until the GitHub credential has `workflow` scope.
+**Last updated:** Session 4 (Auth.js tenant context).
+**What runs today:** `npm run ci`, `npm run build`, and `npm run test:py` pass. The web app has Auth.js credentials sign-in, tenant-scoped sessions, a protected dashboard, and `/api/tenant/context`.
+**Next concrete step:** Continue `M0-1` by replacing the in-memory `HermesAgentRuntime` placeholder with a real Hermes-backed implementation, then wire `M0-2` OpenAI calls through the token meter.
+**Known broken / incomplete:** Auth is development credentials only; no production OAuth/SSO, Prisma-backed user lookup, live DB server, DB-backed budget repository, Hermes install, OpenAI provider call, crawler, WordPress connector, or approval action yet. `npm audit` reports 2 moderate advisories from Next's nested `postcss@8.4.31`; npm's suggested fix is breaking. In-app Browser was unavailable in Session 2 (`agent.browsers.list()` returned `[]`), so visual verification used build + HTTP checks only. GitHub remote is `https://github.com/aethereology/herqseo.git`; local `main` has the latest auth commit, but pushing from Codex failed because the non-interactive shell could not prompt for GitHub credentials.
 
 ---
 
@@ -54,6 +54,15 @@
 - Repo state: `main` is clean but ahead of `origin/main` by one local commit: `c667120 ci: add CI workflow`, which adds `.github/workflows/ci.yml`.
 - Push attempt: `git push origin main` was rejected by GitHub because the configured Personal Access Token cannot create/update workflow files without the `workflow` scope.
 - Next session should either use a GitHub credential with `workflow` scope and push `main`, or decide to move/remove the workflow commit before pushing.
+
+### Session 4 — Auth.js tenant context — 2026-06-15
+- What I did: completed `P0-5` with Auth.js v5 beta in `apps/web`, using a development credentials provider that emits a tenant-scoped JWT session from `QUERYCLEAR_DEV_*` env values.
+- Added shared tenant model types in `packages/shared/src/index.ts`: `OrganizationSummary`, `DomainSummary`, `UserSummary`, and `AuthenticatedTenant`.
+- Added `apps/web/auth.ts`, Auth.js route handlers, session/JWT type augmentation, sign-in/sign-out server actions, a `/sign-in` page, protected dashboard tenant rendering, and `/api/tenant/context`.
+- Verification: `npm run typecheck`, `npm run lint`, `npm run ci`, and `npm run build` pass. Production-mode HTTP checks with `AUTH_SECRET` and `AUTH_TRUST_HOST=true` verified unauthenticated session returns `null`, `/api/tenant/context` returns 401 without a session, `/sign-in` returns 200, `/` redirects to `/sign-in`, credentials callback returns 302, and authenticated `/api/tenant/context` returns the expected tenant payload.
+- Key decisions made: use Auth.js credentials only as a local/M0 bridge until a real Prisma-backed org/user/domain lookup and production provider are added. Do not treat it as production auth.
+- What the next session should do first: start `M0-1` real Hermes integration or `M0-2` OpenAI-only model path through the token meter.
+- Gotchas / things that bit me: Auth.js requires `AUTH_SECRET` in production mode and rejects local hosts unless `AUTH_TRUST_HOST=true`; both are now documented in `.env.example`. `git push origin main` failed from Codex because the shell could not open an interactive GitHub credential prompt.
 
 ### Session 0 — Project scaffold created
 - Created the documentation and spec scaffold: `CLAUDE.md`, `memory.md`, `PROGRESS.md`, `README.md`, `CONTRIBUTING.md`, full `docs/` and `specs/` trees.
@@ -95,5 +104,6 @@ TEMPLATE FOR NEW ENTRIES — copy this block:
 - **Q3:** First CMS integration target confirmed as WordPress; Webflow second. Validate API auth flow before committing the connector interface in `packages/integrations`.
 - **Q4:** Per-customer agent isolation model — container-per-customer vs. shared runtime with tenant context. Affects infra cost and blast radius; decide before scaling past design partners.
 - **Q5:** Next/PostCSS audit path — npm reports a moderate advisory in Next's nested `postcss@8.4.31`; wait for a non-breaking Next/PostCSS resolution or validate a safe override before production use.
+- **Q6:** Production auth provider — Auth.js is installed but currently uses a development credentials provider. Choose production provider/adapter path, likely Auth.js + Prisma-backed lookup, before real customer access.
 - **R1 (margin):** Uncontrolled token burn. Mitigation enforced via D4; verify metering works before any auto-publish path goes live.
 - **R2 (platform):** AI engine API/policy changes. Mitigation via model-agnostic routing (D2) and multi-engine redundancy.

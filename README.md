@@ -33,6 +33,16 @@ cd apps/web
 npx next dev -H 127.0.0.1 -p 3000
 ```
 
+For local auth, copy `.env.example` to `.env.local`, set `AUTH_SECRET`, and use:
+
+```text
+Email: operator@queryclear.dev
+Access code: queryclear-dev
+```
+
+The first auth slice uses an Auth.js credentials provider that creates a tenant-scoped
+development session from `QUERYCLEAR_DEV_*` environment values.
+
 Python runtime tests run through:
 
 ```sh
@@ -57,5 +67,6 @@ queryclear/
 
 Phase 0 scaffold started. The repo now has npm workspaces, a Next.js web app shell,
 shared TypeScript contracts, a Prisma/Postgres schema with RLS migration, an
-integration boundary package, and a Python `AgentRuntime`/token-metering foundation.
+integration boundary package, Auth.js tenant sessions, and a Python
+`AgentRuntime`/token-metering foundation.
 See `PROGRESS.md` for the active build plan.
