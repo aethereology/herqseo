@@ -26,8 +26,8 @@ The loop, end to end, once: crawl one site → run visibility prompts → create
 **Done when:** the agent reliably produces a publish-worthy draft a human approves, it publishes without breaking the target, and every model call + action is metered and audited. (Visibility/traffic lift is explicitly NOT the M0 metric — see `docs/roadmap.md`.)
 
 - [~] **M0-1** `AgentRuntime` interface + `HermesAgentRuntime` (first impl) for one domain. See `specs/hermes-agent-layer.md`.
-- [ ] **M0-2** OpenAI-only path through the token-metering wrapper.
-- [ ] **M0-3** Crawl one site → visibility prompts → create opportunities.
+- [x] **M0-2** OpenAI-only path through the token-metering wrapper. `OpenAIProvider` (lazy SDK import) + data-driven `OPENAI_PRICING` + `run_model()` glue; SDK call never bypasses the meter. Tests cover cost math and over-budget gating.
+- [x] **M0-3** Crawl one site → visibility prompts → create opportunities. `crawl.py` (bounded seed-path fetch, stdlib HTML parse, lazy httpx) → `monitoring.py` (`derive_prompts` → metered `run_visibility_checks` with repeated sampling → `generate_opportunities`), orchestrated by `run_monitoring()`. Every sample metered; opportunities are explainable (rationale + prompt trace). Offline-tested with fake fetcher/provider.
 - [ ] **M0-4** Generate ONE draft (brand-voice) → Review-mode approval gate.
 - [ ] **M0-5** Publish to **staging/draft** (no live-site writes) → record audit trail + usage.
 - [~] **M0-6** Thin internal UI to run the loop and approve.

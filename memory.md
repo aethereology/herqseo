@@ -19,10 +19,10 @@
 
 ## Current State (overwrite each session)
 
-**Phase:** Phase 0 scaffold started.
-**Last updated:** Session 4 (Auth.js tenant context).
-**What runs today:** `npm run ci`, `npm run build`, and `npm run test:py` pass. The web app has Auth.js credentials sign-in, tenant-scoped sessions, a protected dashboard, and `/api/tenant/context`.
-**Next concrete step:** Continue `M0-1` by replacing the in-memory `HermesAgentRuntime` placeholder with a real Hermes-backed implementation, then wire `M0-2` OpenAI calls through the token meter.
+**Phase:** Phase 0 done; Milestone 0 in progress (M0-2 + M0-3 done).
+**Last updated:** Session 6 (M0-3 crawl → prompts → opportunities).
+**What runs today:** `npm run ci`, `npm run build`, and `npm run test:py` pass (22 Python tests). The web app has Auth.js credentials sign-in, tenant-scoped sessions, a protected dashboard, and `/api/tenant/context`. The agent runtime has: an OpenAI model path through `TokenMeter` (`OpenAIProvider`/`run_model`), a bounded crawler (`crawl_site`), and the monitoring pipeline (`run_monitoring`: crawl → `derive_prompts` → metered `run_visibility_checks` → `generate_opportunities`).
+**Next concrete step:** `M0-4` — generate ONE brand-voice draft from a top opportunity (via `run_model`, task_class `content_generation`) behind a Review-mode approval gate. Then `M0-5` publish-to-staging + audit trail. `M0-1` real Hermes can come after the loop's value chain is proven.
 **Known broken / incomplete:** Auth is development credentials only; no production OAuth/SSO, Prisma-backed user lookup, live DB server, DB-backed budget repository, Hermes install, OpenAI provider call, crawler, WordPress connector, or approval action yet. `npm audit` reports 2 moderate advisories from Next's nested `postcss@8.4.31`; npm's suggested fix is breaking. In-app Browser was unavailable in Session 2 (`agent.browsers.list()` returned `[]`), so visual verification used build + HTTP checks only. GitHub remote is `https://github.com/aethereology/herqseo.git`; local `main` has the latest auth commit, but pushing from Codex failed because the non-interactive shell could not prompt for GitHub credentials.
 
 ---
@@ -63,6 +63,25 @@
 - Key decisions made: use Auth.js credentials only as a local/M0 bridge until a real Prisma-backed org/user/domain lookup and production provider are added. Do not treat it as production auth.
 - What the next session should do first: start `M0-1` real Hermes integration or `M0-2` OpenAI-only model path through the token meter.
 - Gotchas / things that bit me: Auth.js requires `AUTH_SECRET` in production mode and rejects local hosts unless `AUTH_TRUST_HOST=true`; both are now documented in `.env.example`. `git push origin main` failed from Codex because the shell could not open an interactive GitHub credential prompt.
+
+### Session 5 — M0-2 OpenAI path through the token meter — 2026-06-15
+- What I did: implemented `M0-2`. Added `services/agent-runtime/src/queryclear_agent_runtime/providers.py` with a `ModelProvider` protocol, `OpenAIProvider`, a data-driven `OPENAI_PRICING` table + `ModelPricing.cost()`, `UnsupportedModel`, and a `run_model(meter, provider, request, prompt)` helper that is the only sanctioned model-call path (it wraps `TokenMeter.run_metered`). Exported the new symbols from `__init__.py` and declared an optional `openai` extra in `pyproject.toml`.
+- Key design choices: the `openai` SDK is **lazily imported** inside `OpenAIProvider._get_client()` so the core package stays importable without the dep or an API key (CI/tests never touch the network — tests inject a fake client). Provider/model are **validated before** any client is built, so `UnsupportedModel` raises offline. Pricing is an in-code table for M0 (pricing-and-tiers.md calls DB-driven config a Phase-1 calibration step). `run_model` enforces budget-then-call ordering: an over-budget request raises `BudgetExceeded` and the provider is never invoked.
+- Verification: wrote 6 new tests in `tests/test_providers.py` (cost blending, usage→ModelResponse mapping, unknown-model + non-openai rejection without a client, metered routing, over-budget gating). `npm run ci` green; 11 Python tests pass.
+- What's in progress / half-done: `M0-1` `HermesAgentRuntime` is still the in-memory placeholder (no real Hermes). No real OpenAI call exercised end-to-end (no key in this env); only the fake-client path is tested.
+- What the next session should do first: `M0-1` real Hermes integration, or `M0-3` crawl→prompts→opportunities wiring `run_model()` for the model calls.
+- Gotchas: tests don't `pip install` the package — they `sys.path`-insert `src`. So any top-level import of `openai` in the package would break CI; keep provider SDK imports lazy.
+
+### Session 6 — M0-3 crawl → visibility prompts → opportunities — 2026-06-15
+- CTO call: did `M0-3` before `M0-1`. Rationale: the M0 proof metric is operator credibility, and Hermes (D3/D7) contributes nothing to it yet — the in-memory `HermesAgentRuntime` is a fine substrate to run the real loop through now. Evaluate/swap Hermes once M0-3/M0-4 reveal the orchestration shape the loop actually needs.
+- Refactor (corrected an M0-2 miss): `run_model` returned only `BudgetState`, discarding the model output — useless to callers. Now returns `ModelCall(response, budget)`; the meter's `UsageRecord` stays content-free. Updated M0-2 tests.
+- Added `crawl.py`: `Page`, `SiteSnapshot`, `PageFetcher` protocol, `parse_page` (stdlib `html.parser`, strips script/style, truncates), `crawl_site` (bounded **seed-path fetch**, NOT link-following — link discovery is P1-3), and `HttpPageFetcher` (lazy `httpx`).
+- Added `monitoring.py`: `derive_prompts` (deterministic title→query seeding for M0; model-assisted seeding is P1-4), `run_visibility_checks` (samples each prompt N times for non-determinism, brand-substring citation detection, every sample metered via `run_model`, records `usage_record_ids` + raw responses for explainability), `generate_opportunities` (below-threshold gaps → prioritized `content` opportunities, zero-citation = priority 1), and `run_monitoring` orchestrator returning `MonitoringResult`.
+- Declared optional extras `openai` and `crawl` (httpx) in `pyproject.toml`; both SDKs lazily imported so core stays importable/offline-testable.
+- Verification: 11 new tests (test_crawl.py + test_monitoring.py); `npm run ci` green, 22 Python tests pass.
+- What's NOT done: no real OpenAI/HTTP call exercised (no key/network in env — fakes only). Citation detection is naive substring match (no fuzzy/entity matching). `derive_prompts` query template (`"best {title}"`) is a placeholder. Opportunities are deterministic from gaps (no model-assisted prioritization yet — that's P1-5).
+- Next session: `M0-4` one brand-voice draft + Review-mode approval gate, then `M0-5` staging publish + audit.
+- Gotchas: tests `sys.path`-insert `src` and never `pip install`, so any top-level `import openai`/`import httpx` in the package breaks CI — keep all provider/fetcher SDK imports lazy.
 
 ### Session 0 — Project scaffold created
 - Created the documentation and spec scaffold: `CLAUDE.md`, `memory.md`, `PROGRESS.md`, `README.md`, `CONTRIBUTING.md`, full `docs/` and `specs/` trees.
