@@ -38,6 +38,31 @@ export interface PublishResponse {
   status: string;
 }
 
+export interface AuditFinding {
+  code: string;
+  severity: string;
+  title: string;
+  detail: string;
+  recommendation: string;
+  url: string | null;
+}
+
+export interface AuditQuery {
+  query: string;
+  cited_count: number;
+  samples: number;
+  citation_frequency: number;
+}
+
+export interface AuditReportData {
+  domain_url: string;
+  page_title: string;
+  findings: AuditFinding[];
+  queries: AuditQuery[];
+  opportunities: RuntimeOpportunity[];
+  sample_draft: RuntimeDraft | null;
+}
+
 export class AgentRuntimeError extends Error {
   constructor(
     message: string,
@@ -97,6 +122,25 @@ export function reviewDraft(
   return call<RuntimeDraft>(`/drafts/${encodeURIComponent(draftId)}/review`, {
     method: "POST",
     body: JSON.stringify(input)
+  });
+}
+
+export function runAudit(input: {
+  orgId: string;
+  domainId: string;
+  domainUrl: string;
+  brand?: string;
+  samples?: number;
+}): Promise<AuditReportData> {
+  return call<AuditReportData>("/audit", {
+    method: "POST",
+    body: JSON.stringify({
+      org_id: input.orgId,
+      domain_id: input.domainId,
+      domain_url: input.domainUrl,
+      brand: input.brand,
+      samples: input.samples ?? 3
+    })
   });
 }
 

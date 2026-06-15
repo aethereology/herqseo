@@ -4,6 +4,7 @@ import {
   PLAN_LIMITS,
   type AutonomyMode
 } from "@queryclear/shared";
+import Link from "next/link";
 import { requireTenant } from "../lib/tenant";
 import { signOutOfDashboard } from "./sign-in/actions";
 import { OperatorConsole } from "./OperatorConsole";
@@ -56,6 +57,12 @@ export default async function Home() {
               <Metric label="Mode" value={AUTONOMY_MODES[activeMode].label} />
               <Metric label="Tokens used" value={`${tokenUsed} / ${tokenBudget}`} />
               <Metric label="Content/mo" value={contentLimit} />
+              <Link
+                href="/audit"
+                className="rounded bg-ink px-3 py-2 text-center text-sm font-semibold text-paper transition hover:bg-ink/90 sm:col-span-2"
+              >
+                Run an AI Search Audit
+              </Link>
               <form action={signOutOfDashboard} className="sm:col-span-2">
                 <button
                   className="w-full rounded border border-line px-3 py-2 text-sm font-semibold text-ink transition hover:bg-paper"
