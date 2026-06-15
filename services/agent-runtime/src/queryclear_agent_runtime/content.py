@@ -37,6 +37,8 @@ class ContentPiece:
     cost_usd: Decimal
     reviewer: str | None = None
     review_note: str | None = None
+    cms_post_id: str | None = None
+    published_at: str | None = None
 
 
 def _system_prompt(voice: BrandVoice) -> str:

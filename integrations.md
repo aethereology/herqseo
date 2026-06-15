@@ -22,6 +22,12 @@ Writes always pass through the autonomy/guardrail layer before reaching a custom
 - Auth: application passwords or OAuth via a QueryClear plugin.
 - Capabilities: create/update posts & pages, inject schema, manage internal links, edit meta.
 - Gotcha: hosting variance; confirm REST API availability and auth flow per site during onboarding.
+- **M0 status (built):** `services/agent-runtime` `WordPressPublisher` (write-only) posts to
+  `POST {base}/wp-json/wp/v2/posts` with HTTP Basic auth (username + application password),
+  `httpx` lazily imported. **Publishes `status="draft"` only** — it raises `StagingOnlyError`
+  for any non-staging status, enforcing D9 (no live-site writes in M0). Schema injection,
+  internal links, meta edits, update/verify, rate-limit backoff, and tenant-scoped credential
+  storage are NOT yet implemented (see checklist).
 
 ### Webflow — **Phase 2**
 - Auth: OAuth + site API token. CMS Collections API for structured content.
