@@ -16,6 +16,11 @@ from .content import (
     generate_content_draft,
     review_content,
 )
+from .technical import (
+    Finding,
+    audit_page,
+    audit_snapshot,
+)
 from .crawl import (
     HttpPageFetcher,
     Page,
@@ -77,6 +82,7 @@ __all__ = [
     "BudgetState",
     "CmsPublisher",
     "ContentPiece",
+    "Finding",
     "HermesAgentRuntime",
     "HttpPageFetcher",
     "InMemoryBudgetRepository",
@@ -107,6 +113,8 @@ __all__ = [
     "UnsupportedModel",
     "UsageRecord",
     "assert_approved_for_publish",
+    "audit_page",
+    "audit_snapshot",
     "crawl_site",
     "derive_prompts",
     "generate_content_draft",
