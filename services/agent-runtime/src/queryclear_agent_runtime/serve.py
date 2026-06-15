@@ -66,7 +66,14 @@ class _DemoPublisher:
 def build_service() -> LoopService:
     org_id = os.environ.get("QUERYCLEAR_DEV_ORG_ID", "org_dev_queryclear")
     budget = int(os.environ.get("QUERYCLEAR_TOKEN_BUDGET", "1000000"))
-    meter = TokenMeter(InMemoryBudgetRepository({org_id: TokenBudget(org_id, budget)}))
+
+    database_url = os.environ.get("DATABASE_URL")
+    if database_url:
+        from .db import SqlBudgetRepository, create_engine_from_url
+
+        meter = TokenMeter(SqlBudgetRepository(create_engine_from_url(database_url)))
+    else:
+        meter = TokenMeter(InMemoryBudgetRepository({org_id: TokenBudget(org_id, budget)}))
 
     api_key = os.environ.get("OPENAI_API_KEY")
     if api_key:

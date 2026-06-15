@@ -75,6 +75,6 @@ The loop, end to end, once: crawl one site → run visibility prompts → create
 ## Discovered tasks (add as you find them)
 
 - [ ] Wire `services/agent-runtime` to real Hermes installation and replace the in-memory placeholder.
-- [ ] Add a real DB-backed `BudgetRepository` that writes `model_usage` and updates organization usage counters.
+- [~] Add a real DB-backed `BudgetRepository` that writes `model_usage` and updates organization usage counters. **Done:** `db.py` `SqlBudgetRepository` (SQLAlchemy Core; writes `model_usage` + increments `organizations.token_used_current_period` atomically; sets `app.current_org` for RLS on Postgres; tested offline on SQLite). `serve.py` uses it when `DATABASE_URL` is set. **Remaining:** validate against a real Postgres + apply the migration; persist `ContentPiece`/`Opportunity`/`AuditEvent` too.
 - [ ] Replace the development Auth.js credentials provider with production auth + Prisma-backed org/user/domain lookup.
 - [ ] Resolve `npm audit` moderate advisory from Next's nested `postcss@8.4.31` when a non-breaking patched Next/PostCSS path is available.
