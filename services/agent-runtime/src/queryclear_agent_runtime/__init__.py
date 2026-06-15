@@ -19,13 +19,16 @@ from .content import (
 from .technical import (
     Finding,
     audit_page,
+    audit_site_resources,
     audit_snapshot,
 )
 from .crawl import (
     HttpPageFetcher,
     Page,
     PageFetcher,
+    SiteResources,
     SiteSnapshot,
+    check_site_resources,
     crawl_site,
     parse_page,
 )
@@ -105,6 +108,7 @@ __all__ = [
     "PublishResult",
     "RunResult",
     "RunSummary",
+    "SiteResources",
     "SiteSnapshot",
     "StagingOnlyError",
     "WordPressPublisher",
@@ -116,7 +120,9 @@ __all__ = [
     "UsageRecord",
     "assert_approved_for_publish",
     "audit_page",
+    "audit_site_resources",
     "audit_snapshot",
+    "check_site_resources",
     "crawl_site",
     "derive_prompts",
     "generate_content_draft",

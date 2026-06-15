@@ -14,3 +14,6 @@ __pycache__/
 .ruff_cache/
 .venv/
 *.pyc
+
+# Python editable-install build artifact
+*.egg-info/
