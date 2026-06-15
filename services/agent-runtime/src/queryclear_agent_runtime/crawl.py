@@ -11,6 +11,8 @@ class Page:
     title: str
     headings: tuple[str, ...]
     text: str
+    meta_description: str = ""
+    has_structured_data: bool = False
 
 
 @dataclass(frozen=True)
@@ -34,10 +36,20 @@ class _Extractor(HTMLParser):
         self.title_parts: list[str] = []
         self.headings: list[str] = []
         self.text_parts: list[str] = []
+        self.meta_description: str = ""
+        self.has_structured_data: bool = False
 
-    def handle_starttag(self, tag: str, attrs: object) -> None:
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        attr = {name.lower(): (value or "") for name, value in attrs}
+        if "itemscope" in attr:
+            self.has_structured_data = True
         if tag in ("script", "style"):
+            if tag == "script" and "ld+json" in attr.get("type", "").lower():
+                self.has_structured_data = True
             self._skip += 1
+        elif tag == "meta":
+            if attr.get("name", "").lower() == "description" and not self.meta_description:
+                self.meta_description = " ".join(attr.get("content", "").split())
         elif tag == "title":
             self._in_title = True
         elif tag in ("h1", "h2", "h3"):
@@ -74,7 +86,14 @@ def parse_page(url: str, html: str, *, max_text_chars: int = 2000) -> Page:
     extractor.feed(html)
     title = " ".join("".join(extractor.title_parts).split())
     text = " ".join(" ".join(extractor.text_parts).split())[:max_text_chars]
-    return Page(url=url, title=title, headings=tuple(extractor.headings), text=text)
+    return Page(
+        url=url,
+        title=title,
+        headings=tuple(extractor.headings),
+        text=text,
+        meta_description=extractor.meta_description,
+        has_structured_data=extractor.has_structured_data,
+    )
 
 
 def crawl_site(
@@ -95,6 +114,32 @@ def crawl_site(
         url = path if path.startswith("http") else base + path
         pages.append(parse_page(url, fetcher.fetch(url)))
     return SiteSnapshot(domain=domain, pages=tuple(pages))
+
+
+@dataclass(frozen=True)
+class SiteResources:
+    has_robots_txt: bool
+    has_llms_txt: bool
+
+
+def check_site_resources(fetcher: PageFetcher, domain: str) -> SiteResources:
+    """Probe a domain for /robots.txt and /llms.txt presence.
+
+    A failed fetch (404, network error) counts as absent — we only assert
+    presence when the file is reachable and non-empty.
+    """
+    base = domain.rstrip("/")
+
+    def _present(path: str) -> bool:
+        try:
+            return bool(fetcher.fetch(base + path).strip())
+        except Exception:  # any fetch failure -> treat as absent
+            return False
+
+    return SiteResources(
+        has_robots_txt=_present("/robots.txt"),
+        has_llms_txt=_present("/llms.txt"),
+    )
 
 
 class HttpPageFetcher:

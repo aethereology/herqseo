@@ -8,7 +8,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from queryclear_agent_runtime import (  # noqa: E402
     Page,
+    SiteResources,
     SiteSnapshot,
+    check_site_resources,
     crawl_site,
     parse_page,
 )
@@ -27,6 +29,8 @@ class _FakeFetcher:
 _HTML = """
 <html>
   <head><title>  Invoice Automation for SaaS </title>
+    <meta name="description" content="  Automate AP invoices for finance teams. ">
+    <script type="application/ld+json">{"@type":"Organization"}</script>
     <style>.x{color:red}</style>
   </head>
   <body>
@@ -49,6 +53,20 @@ class ParsePageTest(unittest.TestCase):
         # script/style content is excluded
         self.assertNotIn("var a", page.text)
         self.assertNotIn("color:red", page.text)
+
+    def test_extracts_meta_description_and_structured_data(self) -> None:
+        page = parse_page("https://example.com/", _HTML)
+        self.assertEqual(page.meta_description, "Automate AP invoices for finance teams.")
+        self.assertTrue(page.has_structured_data)
+
+    def test_missing_meta_and_schema_default_empty(self) -> None:
+        page = parse_page("https://example.com/", "<title>Bare</title><h1>Hi</h1>")
+        self.assertEqual(page.meta_description, "")
+        self.assertFalse(page.has_structured_data)
+
+    def test_detects_microdata_as_structured_data(self) -> None:
+        page = parse_page("https://example.com/", '<div itemscope itemtype="x">a</div>')
+        self.assertTrue(page.has_structured_data)
 
     def test_truncates_text(self) -> None:
         html = "<html><body><p>" + ("word " * 1000) + "</p></body></html>"
@@ -79,6 +97,24 @@ class CrawlSiteTest(unittest.TestCase):
         snapshot = crawl_site(fetcher, "https://example.com/", ("/", "/a", "/b"), max_pages=1)
         self.assertEqual(len(snapshot.pages), 1)
         self.assertEqual(fetcher.fetched, ["https://example.com/"])
+
+
+class SiteResourcesTest(unittest.TestCase):
+    def test_detects_present_and_absent_resources(self) -> None:
+        # robots.txt present (non-empty); llms.txt missing -> fetch raises KeyError
+        fetcher = _FakeFetcher({"https://example.com/robots.txt": "Sitemap: /sitemap.xml"})
+        resources = check_site_resources(fetcher, "https://example.com/")
+        self.assertIsInstance(resources, SiteResources)
+        self.assertTrue(resources.has_robots_txt)
+        self.assertFalse(resources.has_llms_txt)
+
+    def test_empty_file_counts_as_absent(self) -> None:
+        fetcher = _FakeFetcher(
+            {"https://example.com/robots.txt": "   ", "https://example.com/llms.txt": "# Guide"}
+        )
+        resources = check_site_resources(fetcher, "https://example.com")
+        self.assertFalse(resources.has_robots_txt)
+        self.assertTrue(resources.has_llms_txt)
 
 
 if __name__ == "__main__":

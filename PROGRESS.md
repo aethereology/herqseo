@@ -50,7 +50,7 @@ The loop, end to end, once: crawl one site → run visibility prompts → create
 - [ ] **P2-1** Expand engine coverage to 8 (add AI Mode, Gemini, Claude, Copilot, Grok).
 - [ ] **P2-2** Integrations: GA4, Google Search Console, HubSpot, Salesforce. See `docs/integrations.md`.
 - [ ] **P2-3** Webflow connector (CMS #2).
-- [ ] **P2-4** Technical-SEO engine v1: schema, internal links, llms.txt, meta. See `specs/technical-seo-engine.md`.
+- [~] **P2-4** Technical-SEO engine v1: schema, internal links, llms.txt, meta. See `specs/technical-seo-engine.md`. *Detection slice landed in the audit (Session 18): `technical.py` flags missing meta-description, missing structured data (JSON-LD/microdata), missing robots.txt, missing llms.txt; crawler captures meta + schema presence. Still to do: internal-link analysis, and the **fixing** side (generating schema/meta/llms.txt), which is the actual engine.*
 - [ ] **P2-5** Autonomy "Auto-publish" mode with brand-safety guardrails + escalation.
 - [ ] **P2-6** Per-customer token budgets fully enforced + overage billing in Stripe.
 - [ ] **P2-7** CRM/revenue attribution graph.

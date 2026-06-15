@@ -9,12 +9,12 @@ from .content import (
     generate_content_draft,
     review_content,
 )
-from .crawl import PageFetcher, crawl_site
+from .crawl import PageFetcher, check_site_resources, crawl_site
 from .metering import TokenMeter
 from .monitoring import Opportunity, run_monitoring
 from .providers import ModelProvider
 from .publishing import AuditEvent, CmsPublisher, PublishOutcome, publish_content
-from .technical import audit_snapshot
+from .technical import audit_site_resources, audit_snapshot
 
 
 class LoopError(RuntimeError):
@@ -92,6 +92,9 @@ class LoopService:
         one sample draft. No state stored, no publish — the sales deliverable."""
         snapshot = crawl_site(self.fetcher, domain_url, seed_paths)
         findings = audit_snapshot(snapshot)
+        findings.extend(
+            audit_site_resources(check_site_resources(self.fetcher, domain_url), domain_url)
+        )
         monitoring = run_monitoring(
             self.meter, self.provider, snapshot, brand,
             org_id=org_id, domain_id=domain_id, samples=samples, max_prompts=max_prompts,

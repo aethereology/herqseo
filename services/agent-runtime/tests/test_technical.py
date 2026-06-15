@@ -9,13 +9,25 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from queryclear_agent_runtime import (  # noqa: E402
     Finding,
     Page,
+    SiteResources,
     SiteSnapshot,
+    audit_site_resources,
     audit_snapshot,
 )
 
 
-def _page(url="https://x.com/", title="A Clear Descriptive Page Title", headings=("Main heading",), text="word " * 100):
-    return Page(url=url, title=title, headings=headings, text=text)
+def _page(
+    url="https://x.com/",
+    title="A Clear Descriptive Page Title",
+    headings=("Main heading",),
+    text="word " * 100,
+    meta_description="A clear summary of the page for snippets.",
+    has_structured_data=True,
+):
+    return Page(
+        url=url, title=title, headings=headings, text=text,
+        meta_description=meta_description, has_structured_data=has_structured_data,
+    )
 
 
 def _codes(findings):
@@ -48,6 +60,21 @@ class TechnicalAuditTest(unittest.TestCase):
         findings = audit_snapshot(SiteSnapshot("https://x.com", (_page(text="short"),)))
         self.assertIn("thin_content", _codes(findings))
 
+    def test_missing_meta_description(self) -> None:
+        findings = audit_snapshot(SiteSnapshot("https://x.com", (_page(meta_description=""),)))
+        self.assertIn("missing_meta_description", _codes(findings))
+
+    def test_missing_structured_data(self) -> None:
+        findings = audit_snapshot(
+            SiteSnapshot("https://x.com", (_page(has_structured_data=False),))
+        )
+        self.assertIn("missing_structured_data", _codes(findings))
+
+    def test_clean_page_has_no_meta_or_schema_finding(self) -> None:
+        codes = _codes(audit_snapshot(SiteSnapshot("https://x.com", (_page(),))))
+        self.assertNotIn("missing_meta_description", codes)
+        self.assertNotIn("missing_structured_data", codes)
+
     def test_aggregates_across_pages_and_carries_url(self) -> None:
         snapshot = SiteSnapshot(
             "https://x.com",
@@ -57,6 +84,23 @@ class TechnicalAuditTest(unittest.TestCase):
         missing = [f for f in findings if f.code == "missing_title"]
         self.assertEqual(len(missing), 1)
         self.assertEqual(missing[0].url, "https://x.com/a")
+
+
+class SiteResourceFindingsTest(unittest.TestCase):
+    def test_flags_missing_robots_and_llms(self) -> None:
+        findings = audit_site_resources(
+            SiteResources(has_robots_txt=False, has_llms_txt=False), "https://x.com"
+        )
+        codes = _codes(findings)
+        self.assertIn("missing_robots_txt", codes)
+        self.assertIn("missing_llms_txt", codes)
+        self.assertTrue(all(f.severity == "low" for f in findings))
+
+    def test_no_findings_when_both_present(self) -> None:
+        findings = audit_site_resources(
+            SiteResources(has_robots_txt=True, has_llms_txt=True), "https://x.com"
+        )
+        self.assertEqual(findings, [])
 
 
 if __name__ == "__main__":

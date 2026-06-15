@@ -2,16 +2,16 @@
 
 Read-only, credential-free, works on any site — the substance of a sellable
 audit and the seed of the technical-SEO engine (specs/technical-seo-engine.md).
-Operates only on the data the crawler already captures (title, headings, text);
-meta-description / llms.txt / robots checks are a follow-up that needs the
-crawler to capture head tags and extra fetches.
+Page checks use the data the crawler captures (title, headings, text,
+meta-description, structured-data presence); site checks use extra fetches of
+/robots.txt and /llms.txt surfaced as a SiteResources probe.
 """
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
 
-from .crawl import Page, SiteSnapshot
+from .crawl import Page, SiteResources, SiteSnapshot
 
 _TITLE_MAX = 60
 _TITLE_MIN = 15
@@ -102,6 +102,57 @@ def audit_page(page: Page) -> list[Finding]:
                 f"{page.url} has ~{len(page.text)} characters of text.",
                 "Add substantive, answer-first content AI engines can extract.",
                 page.url,
+            )
+        )
+
+    if not page.meta_description.strip():
+        findings.append(
+            Finding(
+                "missing_meta_description", "medium", "Missing meta description",
+                f"{page.url} has no meta description.",
+                "Add a 140–160 char meta description summarizing the page; "
+                "search and AI engines use it to build snippets.",
+                page.url,
+            )
+        )
+
+    if not page.has_structured_data:
+        findings.append(
+            Finding(
+                "missing_structured_data", "medium", "No structured data",
+                f"{page.url} has no JSON-LD or microdata schema.",
+                "Add JSON-LD (e.g. Organization, WebPage, FAQPage) so engines can "
+                "reliably identify the entity and answer about it.",
+                page.url,
+            )
+        )
+
+    return findings
+
+
+def audit_site_resources(resources: SiteResources, domain: str) -> list[Finding]:
+    """Domain-level findings for crawl/AI-discovery files (one per domain)."""
+    findings: list[Finding] = []
+
+    if not resources.has_robots_txt:
+        findings.append(
+            Finding(
+                "missing_robots_txt", "low", "No robots.txt",
+                f"{domain} has no reachable robots.txt.",
+                "Add a robots.txt that references your sitemap so crawlers and AI "
+                "engines can discover every page (not required, but recommended).",
+                domain,
+            )
+        )
+
+    if not resources.has_llms_txt:
+        findings.append(
+            Finding(
+                "missing_llms_txt", "low", "No llms.txt",
+                f"{domain} has no llms.txt.",
+                "Add an llms.txt — an emerging standard that gives AI answer engines "
+                "a curated, plain-text guide to your key pages.",
+                domain,
             )
         )
 
