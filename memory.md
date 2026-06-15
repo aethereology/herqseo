@@ -160,6 +160,12 @@
 - Verified end to end over HTTP against queryclear.com via running `serve.py`: returns page title + 0 findings + 5 invisible queries + sample draft (the exact JSON the UI renders).
 - Reinforced gap: technical checks are shallow (queryclear.com → 0 findings). Deepening to llms.txt/robots/meta/schema is the next high-value, on-brand step.
 
+### Session 17 — Fix: Auth.js "server configuration" error (missing AUTH_SECRET) — 2026-06-15
+- Symptom: web app returned `{"message":"There was a problem with the server configuration..."}` (Auth.js `MissingSecret`).
+- Root cause: **`apps/web/` had no env file** — Next.js loads env from the app dir (`apps/web/.env.local`), NOT the repo-root `.env`/`.env.example`. So `AUTH_SECRET` was undefined. The `QUERYCLEAR_DEV_*` login vars all have fallbacks in `auth.ts`, so AUTH_SECRET was the only true blocker.
+- Fix: created `apps/web/.env.local` (gitignored via `.env.*`) with a generated `AUTH_SECRET`, `AUTH_TRUST_HOST=true`, `AGENT_RUNTIME_URL=http://localhost:8080`, and dev login vars. Verified on a spare port: `/sign-in` → 200 (no config error), `/` → 307 redirect.
+- Setup gotcha (durable): **apps/web needs its own `.env.local` with at least `AUTH_SECRET`**; restart `npm run dev` after creating it. Dev sign-in: `operator@queryclear.dev` / `queryclear-dev`. The audit page also needs `serve.py` running on :8080.
+
 ### Session 0 — Project scaffold created
 - Created the documentation and spec scaffold: `CLAUDE.md`, `memory.md`, `PROGRESS.md`, `README.md`, `CONTRIBUTING.md`, full `docs/` and `specs/` trees.
 - No code yet. The strategy is locked (see `docs/strategic-brief.md`); engineering decisions captured in `docs/tech-stack.md` and `docs/architecture.md`.
