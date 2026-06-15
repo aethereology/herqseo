@@ -19,10 +19,10 @@
 
 ## Current State (overwrite each session)
 
-**Phase:** Phase 0 done; Milestone 0 in progress (M0-2 + M0-3 done).
-**Last updated:** Session 6 (M0-3 crawl → prompts → opportunities).
-**What runs today:** `npm run ci`, `npm run build`, and `npm run test:py` pass (22 Python tests). The web app has Auth.js credentials sign-in, tenant-scoped sessions, a protected dashboard, and `/api/tenant/context`. The agent runtime has: an OpenAI model path through `TokenMeter` (`OpenAIProvider`/`run_model`), a bounded crawler (`crawl_site`), and the monitoring pipeline (`run_monitoring`: crawl → `derive_prompts` → metered `run_visibility_checks` → `generate_opportunities`).
-**Next concrete step:** `M0-4` — generate ONE brand-voice draft from a top opportunity (via `run_model`, task_class `content_generation`) behind a Review-mode approval gate. Then `M0-5` publish-to-staging + audit trail. `M0-1` real Hermes can come after the loop's value chain is proven.
+**Phase:** Phase 0 done; Milestone 0 in progress (M0-2, M0-3, M0-4 done).
+**Last updated:** Session 7 (M0-4 brand-voice draft + Review-mode gate).
+**What runs today:** `npm run ci`, `npm run build`, and `npm run test:py` pass (30 Python tests). The web app has Auth.js credentials sign-in, tenant-scoped sessions, a protected dashboard, and `/api/tenant/context`. The agent runtime now covers the loop through approval: OpenAI model path through `TokenMeter` (`OpenAIProvider`/`run_model`→`ModelCall`), bounded crawler (`crawl_site`), monitoring pipeline (`run_monitoring`), and content engine (`generate_content_draft` → `ContentPiece` pending_approval → `review_content` → `assert_approved_for_publish` gate).
+**Next concrete step:** `M0-5` — publish an APPROVED `ContentPiece` to staging/draft (NEVER live) via a CMS connector behind an interface (WordPress first), and record the full audit trail + usage. Then `M0-6` thin UI to run the loop and approve, and `M0-1` real Hermes once the orchestration shape is settled.
 **Known broken / incomplete:** Auth is development credentials only; no production OAuth/SSO, Prisma-backed user lookup, live DB server, DB-backed budget repository, Hermes install, OpenAI provider call, crawler, WordPress connector, or approval action yet. `npm audit` reports 2 moderate advisories from Next's nested `postcss@8.4.31`; npm's suggested fix is breaking. In-app Browser was unavailable in Session 2 (`agent.browsers.list()` returned `[]`), so visual verification used build + HTTP checks only. GitHub remote is `https://github.com/aethereology/herqseo.git`; local `main` has the latest auth commit, but pushing from Codex failed because the non-interactive shell could not prompt for GitHub credentials.
 
 ---
@@ -82,6 +82,13 @@
 - What's NOT done: no real OpenAI/HTTP call exercised (no key/network in env — fakes only). Citation detection is naive substring match (no fuzzy/entity matching). `derive_prompts` query template (`"best {title}"`) is a placeholder. Opportunities are deterministic from gaps (no model-assisted prioritization yet — that's P1-5).
 - Next session: `M0-4` one brand-voice draft + Review-mode approval gate, then `M0-5` staging publish + audit.
 - Gotchas: tests `sys.path`-insert `src` and never `pip install`, so any top-level `import openai`/`import httpx` in the package breaks CI — keep all provider/fetcher SDK imports lazy.
+
+### Session 7 — M0-4 brand-voice draft + Review-mode approval gate — 2026-06-15
+- What I did: implemented `M0-4` in `content.py`. `BrandVoice` (guideline string for M0; profile training is P1-6). `generate_content_draft(meter, provider, opportunity, voice, ...)` → frontier model (`gpt-4.1`), answer-first system prompt with anti-fabrication instruction, metered via `run_model` (task_class `content_generation`), returns a `ContentPiece` with status `pending_approval`, `usage_record_id`, and `cost_usd`. Rejects non-`content` opportunities. `review_content(piece, approved=, reviewer=, note=)` records the human decision (approved/rejected + reviewer/note). `assert_approved_for_publish(piece, autonomy_mode)` is the gate the M0-5 publisher must call: in Review mode it raises `ApprovalRequired` unless status is `approved`; any non-review mode raises (auto-publish disabled in M0, per D6/guardrails-before-autonomy).
+- Verification: 8 new tests in `tests/test_content.py` (metered draft, brand-voice/opportunity conditioning, non-content rejection, approve/reject, gate blocks unapproved + rejected, allows approved, blocks non-review mode). `npm run ci` green; 30 Python tests pass.
+- What's NOT done: no schema/FAQ markup, internal-link suggestions, plagiarism/grounding guardrails (all P1-6 / pre-auto-publish). `ContentPiece` is in-memory only (no DB persistence yet). No real model call exercised (fakes only). Title is reused from the opportunity; no separate SEO title generation.
+- Next session: `M0-5` publish APPROVED `ContentPiece` to staging/draft via a CMS connector behind an interface (WordPress first), record audit trail + usage. The publisher MUST call `assert_approved_for_publish` and MUST target staging/draft only (D9 — no live-site writes in M0).
+- Gotchas: `ContentPiece` is a frozen dataclass; use `dataclasses.replace` for state transitions (done in `review_content`). Keep CMS SDKs lazily imported like openai/httpx so CI stays offline.
 
 ### Session 0 — Project scaffold created
 - Created the documentation and spec scaffold: `CLAUDE.md`, `memory.md`, `PROGRESS.md`, `README.md`, `CONTRIBUTING.md`, full `docs/` and `specs/` trees.

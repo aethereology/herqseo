@@ -28,7 +28,7 @@ The loop, end to end, once: crawl one site → run visibility prompts → create
 - [~] **M0-1** `AgentRuntime` interface + `HermesAgentRuntime` (first impl) for one domain. See `specs/hermes-agent-layer.md`.
 - [x] **M0-2** OpenAI-only path through the token-metering wrapper. `OpenAIProvider` (lazy SDK import) + data-driven `OPENAI_PRICING` + `run_model()` glue; SDK call never bypasses the meter. Tests cover cost math and over-budget gating.
 - [x] **M0-3** Crawl one site → visibility prompts → create opportunities. `crawl.py` (bounded seed-path fetch, stdlib HTML parse, lazy httpx) → `monitoring.py` (`derive_prompts` → metered `run_visibility_checks` with repeated sampling → `generate_opportunities`), orchestrated by `run_monitoring()`. Every sample metered; opportunities are explainable (rationale + prompt trace). Offline-tested with fake fetcher/provider.
-- [ ] **M0-4** Generate ONE draft (brand-voice) → Review-mode approval gate.
+- [x] **M0-4** Generate ONE draft (brand-voice) → Review-mode approval gate. `content.py`: `BrandVoice`, `generate_content_draft` (frontier model, answer-first system prompt, metered, rejects non-content opps) → `ContentPiece` (`pending_approval`); `review_content` records approve/reject + reviewer; `assert_approved_for_publish` blocks any publish unless `approved` in Review mode (auto modes disabled in M0). Schema/internal-links/guardrails deferred to P1-6.
 - [ ] **M0-5** Publish to **staging/draft** (no live-site writes) → record audit trail + usage.
 - [~] **M0-6** Thin internal UI to run the loop and approve.
 
