@@ -19,10 +19,10 @@
 
 ## Current State (overwrite each session)
 
-**Phase:** Phase 0 done; Milestone 0 — full operator loop proven in code (M0-2..M0-5 done). Remaining: M0-6 (thin UI) and M0-1 (real Hermes).
-**Last updated:** Session 8 (M0-5 staging publish + audit; end-to-end loop test).
+**Phase:** Phase 0 done; Milestone 0 — full loop proven (M0-2..M0-5 done); M0-6 backend done, UI pending. Remaining: M0-6 Next.js UI, M0-1 (real Hermes).
+**Last updated:** Session 9 (M0-6 backend: LoopService + FastAPI adapter; Q2 resolved).
 **What runs today:** `npm run ci`, `npm run build`, and `npm run test:py` pass (36 Python tests). The web app has Auth.js credentials sign-in, tenant-scoped sessions, a protected dashboard, and `/api/tenant/context`. The agent runtime runs the WHOLE M0 loop in code: `crawl_site` → `run_monitoring` (metered visibility checks → opportunities) → `generate_content_draft` (brand voice, frontier model) → `review_content`/`assert_approved_for_publish` (Review-mode gate) → `publish_content` via `WordPressPublisher` (draft-only) → `AuditEvent`. Proven end to end in `test_loop_e2e.py`. Every model call goes through `TokenMeter`.
-**Next concrete step:** `M0-6` — thin internal UI in `apps/web` to run the loop and approve drafts (wire to the runtime; for M0 a TS port or an API bridge to the Python runtime — DECIDE the TS↔Py boundary, Q2). Then `M0-1` real Hermes once orchestration shape is settled. Before customer use: persist entities to Postgres (`ContentPiece`/`Opportunity`/`AuditEvent`/`ModelUsage`) and a DB-backed `BudgetRepository`.
+**Next concrete step:** finish `M0-6` UI — Next.js pages in `apps/web` (run-loop form → opportunities + draft → approve/reject → publish-to-draft → audit) calling the FastAPI endpoints in `services/agent-runtime` `app.py`. Also add an env-wired real service builder (OpenAIProvider + HttpPageFetcher + WordPressPublisher + TokenMeter). Then `M0-1` real Hermes. Before customer use: persist `ContentPiece`/`Opportunity`/`AuditEvent`/`ModelUsage` to Postgres + DB-backed `BudgetRepository`.
 **Known broken / incomplete:** Auth is development credentials only; no production OAuth/SSO, Prisma-backed user lookup, live DB server, DB-backed budget repository, Hermes install, OpenAI provider call, crawler, WordPress connector, or approval action yet. `npm audit` reports 2 moderate advisories from Next's nested `postcss@8.4.31`; npm's suggested fix is breaking. In-app Browser was unavailable in Session 2 (`agent.browsers.list()` returned `[]`), so visual verification used build + HTTP checks only. GitHub remote is `https://github.com/aethereology/herqseo.git`; local `main` has the latest auth commit, but pushing from Codex failed because the non-interactive shell could not prompt for GitHub credentials.
 
 ---
@@ -98,6 +98,15 @@
 - Next session: `M0-6` thin UI + decide the TS↔Python boundary (Q2) — likely a small Python HTTP service the Next.js app calls, or port the M0 loop to TS. Then persistence + `M0-1` Hermes.
 - Gotchas: keep all CMS/provider SDK imports lazy (CI never installs them). `ContentPiece` is frozen — use `dataclasses.replace` for the publish transition (done).
 
+### Session 9 — M0-6 backend: LoopService + FastAPI adapter; Q2 resolved — 2026-06-15
+- CTO decision (D11): the TS↔Python boundary is a **thin FastAPI service** wrapping the runtime, not a subprocess bridge or a TS port. Keeps Python as source of truth (D1), containerizable for idle-cheap serverless. Resolves Q2.
+- What I did: added `service.py` `LoopService` — framework-free in-memory orchestration of the M0 loop (`run` → crawl+monitor+generate draft; `review`; `publish`), with injected meter/provider/fetcher/voice/publisher so it's fully offline-testable. Added `app.py`, a thin FastAPI adapter (`create_app(service)`) exposing `POST /runs`, `GET /drafts/{id}`, `POST /drafts/{id}/review`, `POST /drafts/{id}/publish`, `GET /audit`; maps `ApprovalRequired`→409, `LoopError`→404. Added optional `api` extra (fastapi+uvicorn).
+- Verification: 5 new `LoopService` tests (run→opportunity+draft, no-gap→no-draft, publish-before-approve blocked, approve→publish drafts+audits, unknown-draft raises). `npm run ci` green; 41 Python tests. `app.py` is intentionally NOT imported by `__init__`/tests so CI stays offline (fastapi not installed in CI).
+- Git: merged the M0-2..M0-5 loop to `main` (ff), deleted `feat/m0-agent-loop`, now on `feat/m0-ui`.
+- What's NOT done: the actual Next.js UI; an env-wired real `LoopService` builder; no FastAPI endpoint integration test in CI (would need fastapi installed). Still in-memory only (no DB).
+- Next session: build the Next.js M0-6 pages against the FastAPI endpoints + the env service builder; then persistence and `M0-1` Hermes.
+- Gotchas: keep `app.py` out of package `__init__` imports forever, or CI breaks (fastapi/pydantic not installed). `LoopService` holds drafts in memory keyed by `ContentPiece.id` (= `cp-{opportunity.id}`); fine for single-instance M0, replace with DB before multi-instance.
+
 ### Session 0 — Project scaffold created
 - Created the documentation and spec scaffold: `CLAUDE.md`, `memory.md`, `PROGRESS.md`, `README.md`, `CONTRIBUTING.md`, full `docs/` and `specs/` trees.
 - No code yet. The strategy is locked (see `docs/strategic-brief.md`); engineering decisions captured in `docs/tech-stack.md` and `docs/architecture.md`.
@@ -127,6 +136,7 @@ TEMPLATE FOR NEW ENTRIES — copy this block:
 - **D7 — Program to an `AgentRuntime` interface, not to Hermes.** Hermes is the first implementation (`HermesAgentRuntime`), not a permanent dependency. Same logic as the model router one layer down: don't couple the product to a young framework's memory model or scheduler before hitting real multi-tenant load. Swapping it later must mean swapping an implementation, not the product.
 - **D8 — First build is Milestone 0, narrowed to one of everything.** One vertical, one domain, one CMS (WordPress), one autonomy mode (Review), one model path (OpenAI via metering wrapper). Prove the loop before breadth. Do not let scope creep back toward the full platform before M0 is done. (Adopted from external review; the critique was correct on scope discipline.)
 - **D9 — M0 proof metric is operator credibility, not visibility lift; and staging-first.** Lift is too noisy/confounded on one domain over 30 days (AI non-determinism). M0 proves the loop reliably produces approved, non-breaking, audited, metered work. M0 publishes to staging/draft or our own test sites only — **no customer live-site writes until Phase 1**, after the loop is proven. Visibility lift becomes the Phase 1 metric, measured across enough domains/samples to be meaningful.
+- **D11 — TS↔Python boundary is a thin FastAPI service.** The Next.js control plane talks to the Python agent runtime over HTTP via a thin FastAPI adapter (`services/agent-runtime/app.py`) wrapping the framework-free `LoopService`. Rejected: subprocess/CLI bridge (fragile stdout parsing, poor errors) and porting the loop to TS (duplicates logic, violates D1). Keeps Python as the source of truth and containerizable for idle-cheap serverless. Resolves Q2.
 - **D10 — Use npm workspaces for the initial scaffold.** `pnpm --version` failed in this managed Windows sandbox with `EPERM` while inspecting `C:\Users\kylel`; npm 11 worked and supports the needed workspace scripts. This is a pragmatic local-tooling choice, not a product architecture decision, and can be revisited if pnpm works cleanly outside the sandbox.
 
 ---
@@ -134,7 +144,7 @@ TEMPLATE FOR NEW ENTRIES — copy this block:
 ## Open Questions / Risks (keep current)
 
 - **Q1:** Final job-orchestration choice — Temporal vs. BullMQ for MVP. Leaning Temporal for durability; confirm when building the monitor→publish loop.
-- **Q2:** Cross-language DB access pattern (TS Prisma + Python) — Prisma schema/RLS exists; still need to decide Python DB access for the DB-backed budget repository and runtime writes.
+- **Q2 (RESOLVED — D11):** TS↔Python boundary is a thin FastAPI service. (Still open sub-question: Python *DB* access pattern for the DB-backed budget repository and runtime writes — decide when persistence lands.)
 - **Q3:** First CMS integration target confirmed as WordPress; Webflow second. Validate API auth flow before committing the connector interface in `packages/integrations`.
 - **Q4:** Per-customer agent isolation model — container-per-customer vs. shared runtime with tenant context. Affects infra cost and blast radius; decide before scaling past design partners.
 - **Q5:** Next/PostCSS audit path — npm reports a moderate advisory in Next's nested `postcss@8.4.31`; wait for a non-breaking Next/PostCSS resolution or validate a safe override before production use.

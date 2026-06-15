@@ -34,6 +34,11 @@ from .monitoring import (
     run_monitoring,
     run_visibility_checks,
 )
+from .service import (
+    LoopError,
+    LoopService,
+    RunSummary,
+)
 from .publishing import (
     AuditEvent,
     CmsPublisher,
@@ -74,6 +79,8 @@ __all__ = [
     "HermesAgentRuntime",
     "HttpPageFetcher",
     "InMemoryBudgetRepository",
+    "LoopError",
+    "LoopService",
     "ModelCall",
     "ModelPricing",
     "ModelProvider",
@@ -88,6 +95,7 @@ __all__ = [
     "PublishOutcome",
     "PublishResult",
     "RunResult",
+    "RunSummary",
     "SiteSnapshot",
     "StagingOnlyError",
     "WordPressPublisher",
