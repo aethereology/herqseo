@@ -36,17 +36,27 @@ def _request(model: str = "gpt-4.1-mini", **overrides: object) -> ModelRequest:
 
 class _FakeUsage:
     def __init__(self, input_tokens: int, output_tokens: int) -> None:
-        self.input_tokens = input_tokens
-        self.output_tokens = output_tokens
+        self.prompt_tokens = input_tokens
+        self.completion_tokens = output_tokens
+
+
+class _FakeMessage:
+    def __init__(self, content: str) -> None:
+        self.content = content
+
+
+class _FakeChoice:
+    def __init__(self, content: str) -> None:
+        self.message = _FakeMessage(content)
 
 
 class _FakeResponse:
     def __init__(self, text: str, input_tokens: int, output_tokens: int) -> None:
-        self.output_text = text
+        self.choices = [_FakeChoice(text)]
         self.usage = _FakeUsage(input_tokens, output_tokens)
 
 
-class _FakeResponses:
+class _FakeCompletions:
     def __init__(self, response: _FakeResponse) -> None:
         self._response = response
         self.calls: list[dict[str, object]] = []
@@ -58,7 +68,7 @@ class _FakeResponses:
 
 class _FakeOpenAI:
     def __init__(self, response: _FakeResponse) -> None:
-        self.responses = _FakeResponses(response)
+        self.chat = type("Chat", (), {"completions": _FakeCompletions(response)})()
 
 
 class ModelPricingTest(unittest.TestCase):
@@ -80,8 +90,8 @@ class OpenAIProviderTest(unittest.TestCase):
         self.assertEqual(response.output_tokens, 80)
         # gpt-4.1-mini: 120 in @ $0.40/Mtok + 80 out @ $1.60/Mtok
         self.assertEqual(response.cost_usd, Decimal("0.40") * 120 / 1_000_000 + Decimal("1.60") * 80 / 1_000_000)
-        self.assertEqual(fake.responses.calls[0]["model"], "gpt-4.1-mini")
-        self.assertEqual(fake.responses.calls[0]["max_output_tokens"], 200)
+        self.assertEqual(fake.chat.completions.calls[0]["model"], "gpt-4.1-mini")
+        self.assertEqual(fake.chat.completions.calls[0]["max_tokens"], 200)
 
     def test_rejects_unknown_model_without_building_client(self) -> None:
         provider = OpenAIProvider()  # no client; must not be needed
@@ -116,7 +126,7 @@ class RunModelTest(unittest.TestCase):
         with self.assertRaises(BudgetExceeded):
             run_model(meter, provider, _request(), "generate")
 
-        self.assertEqual(fake.responses.calls, [])
+        self.assertEqual(fake.chat.completions.calls, [])
         self.assertEqual(repo.records, [])
 
 

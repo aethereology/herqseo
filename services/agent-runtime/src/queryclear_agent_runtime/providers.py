@@ -68,19 +68,20 @@ class OpenAIProvider:
         pricing = self._pricing_for(request)  # validate before any network/SDK use
         client = self._get_client()
 
-        kwargs: dict[str, object] = {
-            "model": request.model,
-            "input": prompt,
-            "max_output_tokens": request.max_output_tokens,
-        }
+        messages: list[dict[str, str]] = []
         if system is not None:
-            kwargs["instructions"] = system
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
 
-        response = client.responses.create(**kwargs)
-        input_tokens = response.usage.input_tokens
-        output_tokens = response.usage.output_tokens
+        response = client.chat.completions.create(
+            model=request.model,
+            messages=messages,
+            max_tokens=request.max_output_tokens,
+        )
+        input_tokens = response.usage.prompt_tokens
+        output_tokens = response.usage.completion_tokens
         return ModelResponse(
-            content=response.output_text,
+            content=response.choices[0].message.content,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             cost_usd=pricing.cost(input_tokens, output_tokens),
