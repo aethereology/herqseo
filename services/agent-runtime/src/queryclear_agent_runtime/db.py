@@ -11,6 +11,7 @@ from datetime import datetime
 from uuid import uuid4
 
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 from .content import ContentPiece
 from .metering import BudgetExceeded, TokenBudget, UsageRecord
@@ -18,11 +19,42 @@ from .publishing import AuditEvent
 
 metadata = sa.MetaData()
 
+# The real Postgres columns are `uuid`; SQLite (tests) has no uuid type. This
+# variant binds/returns plain strings as native UUID on Postgres (so `uuid = $1`
+# resolves) while staying a plain VARCHAR on SQLite (so fake ids like "cp-1"
+# round-trip in offline tests).
+_UUID = sa.String().with_variant(postgresql.UUID(as_uuid=False), "postgresql")
+
+
+def _pg_enum(name: str, *values: str) -> sa.String:
+    """A column that's plain VARCHAR on SQLite but the existing named Postgres
+    enum (so inserts cast text -> enum, which isn't implicit). ``create_type``
+    is off: the migration owns the type."""
+    return sa.String().with_variant(
+        postgresql.ENUM(*values, name=name, create_type=False), "postgresql"
+    )
+
+
+# The runtime carries timestamps as ISO strings; the Postgres columns are
+# timestamptz. This variant casts the text on Postgres and stays a plain string
+# on SQLite; `_iso()` normalizes reads on either backend.
+_TS = sa.String().with_variant(postgresql.TIMESTAMP(timezone=True), "postgresql")
+
+
+_OPP_TYPE = _pg_enum("OpportunityType", "content", "technical", "citation")
+_OPP_STATUS = _pg_enum(
+    "OpportunityStatus", "proposed", "approved", "rejected", "in_progress", "done"
+)
+_CONTENT_STATUS = _pg_enum(
+    "ContentStatus", "draft", "pending_approval", "approved", "rejected",
+    "published", "failed",
+)
+
 # Minimal projections of the real tables — only the columns this repo touches.
 organizations = sa.Table(
     "organizations",
     metadata,
-    sa.Column("id", sa.String, primary_key=True),
+    sa.Column("id", _UUID, primary_key=True),
     sa.Column("token_budget_monthly", sa.Integer, nullable=False),
     sa.Column("token_used_current_period", sa.Integer, nullable=False, default=0),
 )
@@ -30,9 +62,9 @@ organizations = sa.Table(
 model_usage = sa.Table(
     "model_usage",
     metadata,
-    sa.Column("id", sa.String, primary_key=True),
-    sa.Column("org_id", sa.String, nullable=False),
-    sa.Column("domain_id", sa.String, nullable=False),
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("org_id", _UUID, nullable=False),
+    sa.Column("domain_id", _UUID, nullable=False),
     sa.Column("task_class", sa.String, nullable=False),
     sa.Column("provider", sa.String, nullable=False),
     sa.Column("model", sa.String, nullable=False),
@@ -45,48 +77,48 @@ model_usage = sa.Table(
 opportunities = sa.Table(
     "opportunities",
     metadata,
-    sa.Column("id", sa.String, primary_key=True),
-    sa.Column("org_id", sa.String, nullable=False),
-    sa.Column("domain_id", sa.String, nullable=False),
-    sa.Column("type", sa.String, nullable=False),
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("org_id", _UUID, nullable=False),
+    sa.Column("domain_id", _UUID, nullable=False),
+    sa.Column("type", _OPP_TYPE, nullable=False),
     sa.Column("priority", sa.Integer, nullable=False),
     sa.Column("title", sa.String, nullable=False),
     sa.Column("rationale", sa.String, nullable=False),
     sa.Column("source_prompt", sa.String, nullable=True),
-    sa.Column("status", sa.String, nullable=False),
+    sa.Column("status", _OPP_STATUS, nullable=False),
 )
 
 content_pieces = sa.Table(
     "content_pieces",
     metadata,
-    sa.Column("id", sa.String, primary_key=True),
-    sa.Column("org_id", sa.String, nullable=False),
-    sa.Column("domain_id", sa.String, nullable=False),
-    sa.Column("opportunity_id", sa.String, nullable=True),
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("org_id", _UUID, nullable=False),
+    sa.Column("domain_id", _UUID, nullable=False),
+    sa.Column("opportunity_id", _UUID, nullable=True),
     sa.Column("title", sa.String, nullable=False),
     sa.Column("body", sa.String, nullable=True),
-    sa.Column("status", sa.String, nullable=False),
+    sa.Column("status", _CONTENT_STATUS, nullable=False),
     sa.Column("model", sa.String, nullable=True),
-    sa.Column("usage_record_id", sa.String, nullable=True),
+    sa.Column("usage_record_id", _UUID, nullable=True),
     sa.Column("cost_usd", sa.Numeric(12, 6), nullable=True),
     sa.Column("reviewer", sa.String, nullable=True),
     sa.Column("review_note", sa.String, nullable=True),
     sa.Column("cms_post_id", sa.String, nullable=True),
-    sa.Column("published_at", sa.String, nullable=True),
+    sa.Column("published_at", _TS, nullable=True),
 )
 
 audit_events = sa.Table(
     "audit_events",
     metadata,
-    sa.Column("id", sa.String, primary_key=True),
-    sa.Column("org_id", sa.String, nullable=False),
-    sa.Column("domain_id", sa.String, nullable=False),
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("org_id", _UUID, nullable=False),
+    sa.Column("domain_id", _UUID, nullable=False),
     sa.Column("entity_type", sa.String, nullable=False),
     sa.Column("entity_id", sa.String, nullable=False),
     sa.Column("action", sa.String, nullable=False),
     sa.Column("actor", sa.String, nullable=False),
     sa.Column("metadata", sa.JSON, nullable=False),
-    sa.Column("created_at", sa.String, nullable=False),
+    sa.Column("created_at", _TS, nullable=False),
 )
 
 

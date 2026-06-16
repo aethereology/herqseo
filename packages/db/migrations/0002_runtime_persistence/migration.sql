@@ -4,6 +4,11 @@
 
 -- body_ref was NOT NULL (a future vault reference); M0 stores the body inline,
 -- so relax it and add the inline + review/cost columns.
+-- The content lifecycle has explicit approve/reject states (Review mode) that
+-- the initial ContentStatus enum was missing.
+ALTER TYPE "ContentStatus" ADD VALUE IF NOT EXISTS 'approved' AFTER 'pending_approval';
+ALTER TYPE "ContentStatus" ADD VALUE IF NOT EXISTS 'rejected' AFTER 'approved';
+
 ALTER TABLE content_pieces ALTER COLUMN body_ref DROP NOT NULL;
 ALTER TABLE content_pieces ADD COLUMN body text;
 ALTER TABLE content_pieces ADD COLUMN model text;
