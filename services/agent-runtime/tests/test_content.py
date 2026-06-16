@@ -14,9 +14,12 @@ from queryclear_agent_runtime import (  # noqa: E402
     InMemoryBudgetRepository,
     ModelResponse,
     Opportunity,
+    Page,
+    SiteSnapshot,
     TokenBudget,
     TokenMeter,
     assert_approved_for_publish,
+    derive_brand_voice,
     generate_content_draft,
     review_content,
 )
@@ -99,6 +102,49 @@ class GenerateContentDraftTest(unittest.TestCase):
                 meter, provider, _opportunity("technical"), _voice(),
                 org_id="org_1", domain_id="domain_1",
             )
+
+
+def _rich_snapshot() -> SiteSnapshot:
+    body = (
+        "We help finance teams automate accounts payable. No fluff, no jargon — "
+        "just clear steps that get invoices paid faster. " * 3
+    )
+    return SiteSnapshot(
+        "https://acme.test",
+        (Page(url="https://acme.test/", title="Acme — AP automation", headings=("Pay faster",), text=body),),
+    )
+
+
+class DeriveBrandVoiceTest(unittest.TestCase):
+    def test_derives_guidelines_from_site_copy(self) -> None:
+        meter, repo = _meter()
+        provider = _RecordingProvider("Direct and plain-spoken; short sentences; avoid jargon.")
+
+        voice = derive_brand_voice(
+            meter, provider, _rich_snapshot(), "Acme", org_id="org_1", domain_id="domain_1"
+        )
+
+        self.assertEqual(voice.brand, "Acme")
+        self.assertEqual(voice.guidelines, "Direct and plain-spoken; short sentences; avoid jargon.")
+        # metered as a (cheap) analysis call, and the site copy was in the prompt
+        self.assertEqual(len(repo.records), 1)
+        self.assertEqual(repo.records[0].task_class, "classification")
+        self.assertIn("accounts payable", provider.prompts[0].lower())
+
+    def test_falls_back_when_site_too_thin(self) -> None:
+        meter, repo = _meter()
+        provider = _RecordingProvider("unused")
+        thin = SiteSnapshot(
+            "https://x.test", (Page(url="https://x.test/", title="Hi", headings=(), text="short"),)
+        )
+
+        voice = derive_brand_voice(
+            meter, provider, thin, "X", org_id="org_1", domain_id="domain_1",
+            fallback="House style.",
+        )
+
+        self.assertEqual(voice.guidelines, "House style.")
+        self.assertEqual(len(repo.records), 0)  # no model call when there's no signal
 
 
 class ReviewContentTest(unittest.TestCase):

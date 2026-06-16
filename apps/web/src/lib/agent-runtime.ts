@@ -137,9 +137,9 @@ export function runAudit(input: {
   domainId: string;
   domainUrl: string;
   brand?: string;
-  brandVoice?: string;
   samples?: number;
 }): Promise<AuditReportData> {
+  // No brand voice: an audit derives the prospect's voice from their own site.
   return call<AuditReportData>("/audit", {
     method: "POST",
     body: JSON.stringify({
@@ -147,7 +147,6 @@ export function runAudit(input: {
       domain_id: input.domainId,
       domain_url: input.domainUrl,
       brand: input.brand,
-      brand_voice: input.brandVoice,
       samples: input.samples ?? 3
     })
   });

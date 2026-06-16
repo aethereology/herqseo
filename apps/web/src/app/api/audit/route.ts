@@ -20,8 +20,7 @@ export async function POST(request: Request) {
       orgId: tenant.organization.id,
       domainId: tenant.activeDomain.id,
       domainUrl,
-      brand: body.brand?.trim() || undefined,
-      brandVoice: tenant.activeDomain.brandVoice
+      brand: body.brand?.trim() || undefined
     });
     return NextResponse.json(report);
   } catch (error) {
