@@ -30,12 +30,14 @@ class RunRequest(BaseModel):
 
 
 class ReviewRequest(BaseModel):
+    org_id: str
     approved: bool
     reviewer: str
     note: str | None = None
 
 
 class PublishRequest(BaseModel):
+    org_id: str
     actor: str
 
 
@@ -125,9 +127,9 @@ def create_app(service: LoopService) -> FastAPI:
         }
 
     @app.get("/drafts/{draft_id}")
-    def get_draft(draft_id: str) -> dict[str, Any]:
+    def get_draft(draft_id: str, org_id: str) -> dict[str, Any]:
         try:
-            return _piece_json(service.get_draft(draft_id))
+            return _piece_json(service.get_draft(draft_id, org_id=org_id))
         except LoopError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -135,7 +137,8 @@ def create_app(service: LoopService) -> FastAPI:
     def review(draft_id: str, req: ReviewRequest) -> dict[str, Any]:
         try:
             piece = service.review(
-                draft_id, approved=req.approved, reviewer=req.reviewer, note=req.note
+                draft_id, org_id=req.org_id, approved=req.approved,
+                reviewer=req.reviewer, note=req.note,
             )
         except LoopError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -144,7 +147,7 @@ def create_app(service: LoopService) -> FastAPI:
     @app.post("/drafts/{draft_id}/publish")
     def publish(draft_id: str, req: PublishRequest) -> dict[str, Any]:
         try:
-            outcome = service.publish(draft_id, actor=req.actor)
+            outcome = service.publish(draft_id, org_id=req.org_id, actor=req.actor)
         except ApprovalRequired as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except LoopError as exc:
@@ -169,7 +172,7 @@ def create_app(service: LoopService) -> FastAPI:
         return _report_json(report)
 
     @app.get("/audit-log")
-    def audit_log() -> list[dict[str, Any]]:
+    def audit_log(org_id: str) -> list[dict[str, Any]]:
         return [
             {
                 "entity_id": e.entity_id,
@@ -178,7 +181,7 @@ def create_app(service: LoopService) -> FastAPI:
                 "created_at": e.created_at,
                 "metadata": e.metadata,
             }
-            for e in service.audit_log
+            for e in service.audit_events.list(org_id=org_id)
         ]
 
     return app

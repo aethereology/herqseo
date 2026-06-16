@@ -51,6 +51,8 @@ class _FakePublisher:
 def _piece(status: str = "approved") -> ContentPiece:
     return ContentPiece(
         id="cp-opp-vp-0",
+        org_id="org_1",
+        domain_id="domain_1",
         opportunity_id="opp-vp-0",
         title="Improve AI visibility for: best invoice automation for saas",
         body="## Direct answer\nQueryClear automates invoices...",

@@ -13,7 +13,15 @@ from .crawl import PageFetcher, check_site_resources, crawl_site
 from .metering import TokenMeter
 from .monitoring import Opportunity, run_monitoring
 from .providers import ModelProvider
-from .publishing import AuditEvent, CmsPublisher, PublishOutcome, publish_content
+from .publishing import CmsPublisher, PublishOutcome, publish_content
+from .repositories import (
+    AuditEventRepository,
+    DraftRepository,
+    InMemoryAuditEventRepository,
+    InMemoryDraftRepository,
+    InMemoryOpportunityRepository,
+    OpportunityRepository,
+)
 from .technical import audit_site_resources, audit_snapshot
 
 
@@ -43,8 +51,13 @@ class LoopService:
     voice: BrandVoice
     publisher: CmsPublisher | None = None
     autonomy_mode: str = "review"
-    audit_log: list[AuditEvent] = field(default_factory=list)
-    _drafts: dict[str, ContentPiece] = field(default_factory=dict)
+    drafts: DraftRepository = field(default_factory=InMemoryDraftRepository)
+    opportunities: OpportunityRepository = field(
+        default_factory=InMemoryOpportunityRepository
+    )
+    audit_events: AuditEventRepository = field(
+        default_factory=InMemoryAuditEventRepository
+    )
     _runs: int = 0
 
     def _voice_for(self, brand: str, guidelines: str | None) -> BrandVoice:
@@ -71,6 +84,9 @@ class LoopService:
             self.meter, self.provider, snapshot, brand,
             org_id=org_id, domain_id=domain_id, samples=samples,
         )
+        self.opportunities.save_all(
+            monitoring.opportunities, org_id=org_id, domain_id=domain_id
+        )
         draft: ContentPiece | None = None
         if monitoring.opportunities:
             draft = generate_content_draft(
@@ -78,7 +94,7 @@ class LoopService:
                 self._voice_for(brand, brand_voice),
                 org_id=org_id, domain_id=domain_id,
             )
-            self._drafts[draft.id] = draft
+            self.drafts.save(draft)
         self._runs += 1
         return RunSummary(
             run_id=f"run-{self._runs}",
@@ -126,27 +142,38 @@ class LoopService:
             sample_draft=sample,
         )
 
-    def get_draft(self, draft_id: str) -> ContentPiece:
-        try:
-            return self._drafts[draft_id]
-        except KeyError as exc:
-            raise LoopError(f"unknown draft {draft_id!r}") from exc
+    def get_draft(self, draft_id: str, *, org_id: str) -> ContentPiece:
+        piece = self.drafts.get(draft_id, org_id=org_id)
+        if piece is None:
+            raise LoopError(f"unknown draft {draft_id!r}")
+        return piece
 
     def review(
-        self, draft_id: str, *, approved: bool, reviewer: str, note: str | None = None
+        self,
+        draft_id: str,
+        *,
+        org_id: str,
+        approved: bool,
+        reviewer: str,
+        note: str | None = None,
     ) -> ContentPiece:
         reviewed = review_content(
-            self.get_draft(draft_id), approved=approved, reviewer=reviewer, note=note
+            self.get_draft(draft_id, org_id=org_id),
+            approved=approved, reviewer=reviewer, note=note,
         )
-        self._drafts[draft_id] = reviewed
+        self.drafts.save(reviewed)
         return reviewed
 
-    def publish(self, draft_id: str, *, actor: str) -> PublishOutcome:
+    def publish(self, draft_id: str, *, org_id: str, actor: str) -> PublishOutcome:
         if self.publisher is None:
             raise LoopError("no CMS publisher configured")
+        piece = self.get_draft(draft_id, org_id=org_id)
         outcome = publish_content(
-            self.publisher, self.get_draft(draft_id),
-            autonomy_mode=self.autonomy_mode, actor=actor, audit_log=self.audit_log,
+            self.publisher, piece,
+            autonomy_mode=self.autonomy_mode, actor=actor, audit_log=[],
         )
-        self._drafts[draft_id] = outcome.piece
+        self.audit_events.append(
+            outcome.event, org_id=piece.org_id, domain_id=piece.domain_id
+        )
+        self.drafts.save(outcome.piece)
         return outcome

@@ -44,6 +44,14 @@ from .monitoring import (
     run_visibility_checks,
 )
 from .audit import AuditReport
+from .repositories import (
+    AuditEventRepository,
+    DraftRepository,
+    InMemoryAuditEventRepository,
+    InMemoryDraftRepository,
+    InMemoryOpportunityRepository,
+    OpportunityRepository,
+)
 from .service import (
     LoopError,
     LoopService,
@@ -82,17 +90,23 @@ __all__ = [
     "ApprovalRequired",
     "AuditReport",
     "AuditEvent",
+    "AuditEventRepository",
     "BrandVoice",
     "BudgetExceeded",
     "BudgetState",
     "CmsPublisher",
     "ContentPiece",
+    "DraftRepository",
     "Finding",
     "HermesAgentRuntime",
     "HttpPageFetcher",
+    "InMemoryAuditEventRepository",
     "InMemoryBudgetRepository",
+    "InMemoryDraftRepository",
+    "InMemoryOpportunityRepository",
     "LoopError",
     "LoopService",
+    "OpportunityRepository",
     "ModelCall",
     "ModelPricing",
     "ModelProvider",
