@@ -13,6 +13,7 @@ from .content import (
     BrandVoice,
     ContentPiece,
     assert_approved_for_publish,
+    derive_brand_voice,
     generate_content_draft,
     review_content,
 )
@@ -140,6 +141,7 @@ __all__ = [
     "audit_snapshot",
     "check_site_resources",
     "crawl_site",
+    "derive_brand_voice",
     "derive_prompts",
     "generate_content_draft",
     "generate_opportunities",

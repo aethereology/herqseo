@@ -6,6 +6,7 @@ from .audit import AuditReport
 from .content import (
     BrandVoice,
     ContentPiece,
+    derive_brand_voice,
     generate_content_draft,
     review_content,
 )
@@ -60,12 +61,18 @@ class LoopService:
     )
     _runs: int = 0
 
-    def _voice_for(self, brand: str, guidelines: str | None) -> BrandVoice:
-        """Per-domain brand voice for this run/audit, falling back to the
-        service default for whatever the caller doesn't supply."""
-        return BrandVoice(
-            brand=brand or self.voice.brand,
-            guidelines=guidelines or self.voice.guidelines,
+    def _resolve_voice(
+        self, brand: str, guidelines: str | None, snapshot, *, org_id: str, domain_id: str
+    ) -> BrandVoice:
+        """Resolve the brand voice for this draft. An explicit per-domain
+        ``guidelines`` string wins; otherwise derive the voice from the crawled
+        site (the content-engine 'training' step), falling back to the service
+        default when the site has too little copy to learn from."""
+        if guidelines:
+            return BrandVoice(brand=brand or self.voice.brand, guidelines=guidelines)
+        return derive_brand_voice(
+            self.meter, self.provider, snapshot, brand or self.voice.brand,
+            org_id=org_id, domain_id=domain_id, fallback=self.voice.guidelines,
         )
 
     def run(
@@ -89,9 +96,11 @@ class LoopService:
         )
         draft: ContentPiece | None = None
         if monitoring.opportunities:
+            voice = self._resolve_voice(
+                brand, brand_voice, snapshot, org_id=org_id, domain_id=domain_id
+            )
             draft = generate_content_draft(
-                self.meter, self.provider, monitoring.opportunities[0],
-                self._voice_for(brand, brand_voice),
+                self.meter, self.provider, monitoring.opportunities[0], voice,
                 org_id=org_id, domain_id=domain_id,
             )
             self.drafts.save(draft)
@@ -110,7 +119,6 @@ class LoopService:
         *,
         org_id: str,
         domain_id: str,
-        brand_voice: str | None = None,
         samples: int = 3,
         max_prompts: int = 5,
         seed_paths: tuple[str, ...] = ("/",),
@@ -128,9 +136,14 @@ class LoopService:
         )
         sample: ContentPiece | None = None
         if monitoring.opportunities:
+            # An audit analyzes the prospect's OWN site, so always derive the voice
+            # from the crawl (ignore any caller-supplied voice, which would be the
+            # operator's default, not this site's).
+            voice = self._resolve_voice(
+                brand, None, snapshot, org_id=org_id, domain_id=domain_id
+            )
             sample = generate_content_draft(
-                self.meter, self.provider, monitoring.opportunities[0],
-                self._voice_for(brand, brand_voice),
+                self.meter, self.provider, monitoring.opportunities[0], voice,
                 org_id=org_id, domain_id=domain_id,
             )
         return AuditReport(

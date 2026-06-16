@@ -4,6 +4,7 @@ from dataclasses import dataclass, replace
 from decimal import Decimal
 from uuid import uuid4
 
+from .crawl import SiteSnapshot
 from .metering import ModelRequest, TokenMeter
 from .monitoring import Opportunity
 from .providers import ModelProvider, run_model
@@ -11,6 +12,14 @@ from .providers import ModelProvider, run_model
 # Content generation uses a frontier model for quality (content-engine.md).
 _CONTENT_MODEL = "gpt-4.1"
 _MAX_OUTPUT_TOKENS = 1200
+
+# Brand-voice derivation is a cheap analysis task (a short style guide).
+_VOICE_MODEL = "gpt-4.1-mini"
+_VOICE_MAX_OUTPUT_TOKENS = 200
+_MIN_VOICE_CORPUS = 200  # chars of site copy below which there's too little signal
+_DEFAULT_VOICE_GUIDELINES = (
+    "Clear, professional, and concrete. Answer-first. Avoid hype and filler."
+)
 
 
 class ApprovalRequired(RuntimeError):
@@ -42,6 +51,61 @@ class ContentPiece:
     review_note: str | None = None
     cms_post_id: str | None = None
     published_at: str | None = None
+
+
+def _voice_corpus(
+    snapshot: SiteSnapshot, *, max_pages: int = 5, per_page: int = 400, max_chars: int = 1800
+) -> str:
+    """Representative prose from the site — body text reveals voice better than
+    titles/headings alone."""
+    parts: list[str] = []
+    for page in snapshot.pages[:max_pages]:
+        text = f"{page.title}. {page.text}".strip(". ").strip() if page.title else page.text
+        if text:
+            parts.append(text[:per_page])
+    return "\n\n".join(parts)[:max_chars]
+
+
+def derive_brand_voice(
+    meter: TokenMeter,
+    provider: ModelProvider,
+    snapshot: SiteSnapshot,
+    brand: str,
+    *,
+    org_id: str,
+    domain_id: str,
+    fallback: str = _DEFAULT_VOICE_GUIDELINES,
+    model: str = _VOICE_MODEL,
+) -> BrandVoice:
+    """Derive a brand-voice profile from the brand's OWN site copy (metered), so
+    generated content matches how they actually write — the "training" step of
+    the content engine (content-engine.md / P1-6). Falls back to ``fallback``
+    guidelines when the site has too little text or the model returns nothing."""
+    corpus = _voice_corpus(snapshot)
+    if len(corpus) < _MIN_VOICE_CORPUS:
+        return BrandVoice(brand=brand, guidelines=fallback)
+
+    prompt = (
+        f"Below is copy from {brand}'s website. Describe their brand voice as a "
+        "concise, concrete style guide (2–3 sentences): tone, vocabulary, typical "
+        "sentence length, and what to avoid. Output only the guideline text.\n\n"
+        f"{corpus}"
+    )
+    request = ModelRequest(
+        org_id=org_id,
+        domain_id=domain_id,
+        task_class="classification",
+        provider="openai",
+        model=model,
+        estimated_input_tokens=max(64, len(prompt) // 4),
+        max_output_tokens=_VOICE_MAX_OUTPUT_TOKENS,
+    )
+    call = run_model(
+        meter, provider, request, prompt,
+        system="You are a brand-voice analyst. Output only the style guide, no preamble.",
+    )
+    guidelines = call.response.content.strip()
+    return BrandVoice(brand=brand, guidelines=guidelines or fallback)
 
 
 def _system_prompt(voice: BrandVoice) -> str:

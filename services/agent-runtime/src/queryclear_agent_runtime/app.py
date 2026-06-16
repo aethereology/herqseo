@@ -46,7 +46,6 @@ class AuditRequest(BaseModel):
     domain_id: str
     domain_url: str
     brand: str | None = None
-    brand_voice: str | None = None
     samples: int = 3
 
 
@@ -166,7 +165,6 @@ def create_app(service: LoopService) -> FastAPI:
             req.brand or _brand_from_url(req.domain_url),
             org_id=req.org_id,
             domain_id=req.domain_id,
-            brand_voice=req.brand_voice,
             samples=req.samples,
         )
         return _report_json(report)
