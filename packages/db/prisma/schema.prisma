@@ -183,6 +183,7 @@ model Domain {
   technicalFixes       TechnicalFix[]
   citationCampaigns    CitationCampaign[]
   approvalEvents       ApprovalEvent[]
+  auditEvents          AuditEvent[]
   modelUsage           ModelUsage[]
   liftMeasurements     LiftMeasurement[]
 
@@ -264,9 +265,15 @@ model ContentPiece {
   domainId      String        @map("domain_id") @db.Uuid
   opportunityId String?       @map("opportunity_id") @db.Uuid
   title         String
-  bodyRef       String        @map("body_ref")
+  body          String?
+  bodyRef       String?       @map("body_ref")
   schemaJson    Json?         @map("schema_json")
   status        ContentStatus @default(draft)
+  model         String?
+  usageRecordId String?       @map("usage_record_id") @db.Uuid
+  costUsd       Decimal?      @map("cost_usd") @db.Decimal(12, 6)
+  reviewer      String?
+  reviewNote    String?       @map("review_note")
   cmsPostId     String?       @map("cms_post_id")
   publishedAt   DateTime?     @map("published_at")
   wordCount     Int           @default(0) @map("word_count")
@@ -325,6 +332,22 @@ model ApprovalEvent {
 
   @@index([orgId, domainId, createdAt])
   @@map("approval_events")
+}
+
+model AuditEvent {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId      String   @map("org_id") @db.Uuid
+  domainId   String   @map("domain_id") @db.Uuid
+  entityType String   @map("entity_type")
+  entityId   String   @map("entity_id")
+  action     String
+  actor      String
+  metadata   Json     @default("{}")
+  createdAt  DateTime @default(now()) @map("created_at")
+  domain     Domain   @relation(fields: [domainId], references: [id])
+
+  @@index([orgId, domainId, createdAt])
+  @@map("audit_events")
 }
 
 model ModelUsage {

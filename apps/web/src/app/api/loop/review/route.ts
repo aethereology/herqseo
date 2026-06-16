@@ -19,6 +19,7 @@ export async function POST(request: Request) {
 
   try {
     const draft = await reviewDraft(body.draftId, {
+      orgId: tenant.organization.id,
       approved: body.approved,
       reviewer: tenant.user.email,
       note: body.note ?? null

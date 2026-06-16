@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from decimal import Decimal
+from uuid import uuid4
 
 from .metering import ModelRequest, TokenMeter
 from .monitoring import Opportunity
@@ -28,6 +29,8 @@ class BrandVoice:
 @dataclass(frozen=True)
 class ContentPiece:
     id: str
+    org_id: str
+    domain_id: str
     opportunity_id: str
     title: str
     body: str
@@ -83,7 +86,9 @@ def generate_content_draft(
     )
     call = run_model(meter, provider, request, prompt, system=_system_prompt(voice))
     return ContentPiece(
-        id=f"cp-{opportunity.id}",
+        id=str(uuid4()),
+        org_id=org_id,
+        domain_id=domain_id,
         opportunity_id=opportunity.id,
         title=opportunity.title,
         body=call.response.content,

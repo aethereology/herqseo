@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from uuid import uuid4
 
 from .crawl import SiteSnapshot
 from .metering import ModelRequest, TokenMeter
@@ -210,7 +211,7 @@ def generate_opportunities(
         priority = 1 if check.cited_count == 0 else 2
         opportunities.append(
             Opportunity(
-                id=f"opp-{check.prompt_id}",
+                id=str(uuid4()),
                 opportunity_type="content",
                 title=f"Improve AI visibility for: {check.query}",
                 rationale=(

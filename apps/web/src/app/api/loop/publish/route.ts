@@ -14,7 +14,10 @@ export async function POST(request: Request) {
   }
 
   try {
-    const result = await publishDraft(body.draftId, tenant.user.email);
+    const result = await publishDraft(body.draftId, {
+      orgId: tenant.organization.id,
+      actor: tenant.user.email
+    });
     return NextResponse.json(result);
   } catch (error) {
     return runtimeErrorResponse(error);

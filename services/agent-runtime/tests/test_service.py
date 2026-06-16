@@ -77,7 +77,9 @@ class LoopServiceTest(unittest.TestCase):
         self.assertIsNotNone(summary.draft)
         self.assertEqual(summary.draft.status, "pending_approval")
         # draft is retrievable by id
-        self.assertEqual(service.get_draft(summary.draft.id).id, summary.draft.id)
+        self.assertEqual(
+            service.get_draft(summary.draft.id, org_id="org_1").id, summary.draft.id
+        )
 
     def test_run_without_gap_makes_no_draft(self) -> None:
         summary = _run(_service(cite=True))
@@ -89,24 +91,28 @@ class LoopServiceTest(unittest.TestCase):
         summary = _run(service)
 
         with self.assertRaises(ApprovalRequired):
-            service.publish(summary.draft.id, actor="founder@x.com")
+            service.publish(summary.draft.id, org_id="org_1", actor="founder@x.com")
 
     def test_approve_then_publish_drafts_and_audits(self) -> None:
         service = _service(cite=False)
         summary = _run(service)
 
-        service.review(summary.draft.id, approved=True, reviewer="founder@x.com")
-        outcome = service.publish(summary.draft.id, actor="founder@x.com")
+        service.review(
+            summary.draft.id, org_id="org_1", approved=True, reviewer="founder@x.com"
+        )
+        outcome = service.publish(summary.draft.id, org_id="org_1", actor="founder@x.com")
 
         self.assertEqual(outcome.piece.status, "published")
         self.assertEqual(outcome.result.status, "draft")  # staging only
-        self.assertEqual(len(service.audit_log), 1)
+        self.assertEqual(len(service.audit_events.list(org_id="org_1")), 1)
         # stored draft reflects published state
-        self.assertEqual(service.get_draft(summary.draft.id).status, "published")
+        self.assertEqual(
+            service.get_draft(summary.draft.id, org_id="org_1").status, "published"
+        )
 
     def test_unknown_draft_raises(self) -> None:
         with self.assertRaises(LoopError):
-            _service(cite=False).get_draft("nope")
+            _service(cite=False).get_draft("nope", org_id="org_1")
 
     def test_run_uses_per_domain_brand_voice(self) -> None:
         class _CapturingProvider(_FakeProvider):

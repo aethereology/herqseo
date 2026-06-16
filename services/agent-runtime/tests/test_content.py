@@ -126,7 +126,8 @@ class ReviewContentTest(unittest.TestCase):
 class ApprovalGateTest(unittest.TestCase):
     def _piece(self, status: str) -> ContentPiece:
         return ContentPiece(
-            id="cp-1", opportunity_id="opp-vp-0", title="t", body="b",
+            id="cp-1", org_id="org_1", domain_id="domain_1",
+            opportunity_id="opp-vp-0", title="t", body="b",
             status=status, model="gpt-4.1", usage_record_id="u1", cost_usd=Decimal("0"),
         )
 

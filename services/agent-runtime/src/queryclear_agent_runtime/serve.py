@@ -79,10 +79,23 @@ def build_service() -> LoopService:
     budget = int(os.environ.get("QUERYCLEAR_TOKEN_BUDGET", "1000000"))
 
     database_url = os.environ.get("DATABASE_URL")
+    repos: dict[str, object] = {}
     if database_url:
-        from .db import SqlBudgetRepository, create_engine_from_url
+        from .db import (
+            SqlAuditEventRepository,
+            SqlBudgetRepository,
+            SqlDraftRepository,
+            SqlOpportunityRepository,
+            create_engine_from_url,
+        )
 
-        meter = TokenMeter(SqlBudgetRepository(create_engine_from_url(database_url)))
+        engine = create_engine_from_url(database_url)
+        meter = TokenMeter(SqlBudgetRepository(engine))
+        repos = {
+            "drafts": SqlDraftRepository(engine),
+            "opportunities": SqlOpportunityRepository(engine),
+            "audit_events": SqlAuditEventRepository(engine),
+        }
     else:
         meter = TokenMeter(InMemoryBudgetRepository({org_id: TokenBudget(org_id, budget)}))
 
@@ -118,6 +131,7 @@ def build_service() -> LoopService:
         fetcher=fetcher,  # type: ignore[arg-type]
         voice=voice,
         publisher=publisher,  # type: ignore[arg-type]
+        **repos,  # type: ignore[arg-type]  # Sql repos when DATABASE_URL set; else defaults
     )
 
 

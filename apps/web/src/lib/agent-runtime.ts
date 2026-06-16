@@ -119,11 +119,16 @@ export function runLoop(input: {
 
 export function reviewDraft(
   draftId: string,
-  input: { approved: boolean; reviewer: string; note?: string | null }
+  input: { orgId: string; approved: boolean; reviewer: string; note?: string | null }
 ): Promise<RuntimeDraft> {
   return call<RuntimeDraft>(`/drafts/${encodeURIComponent(draftId)}/review`, {
     method: "POST",
-    body: JSON.stringify(input)
+    body: JSON.stringify({
+      org_id: input.orgId,
+      approved: input.approved,
+      reviewer: input.reviewer,
+      note: input.note ?? null
+    })
   });
 }
 
@@ -148,9 +153,12 @@ export function runAudit(input: {
   });
 }
 
-export function publishDraft(draftId: string, actor: string): Promise<PublishResponse> {
+export function publishDraft(
+  draftId: string,
+  input: { orgId: string; actor: string }
+): Promise<PublishResponse> {
   return call<PublishResponse>(`/drafts/${encodeURIComponent(draftId)}/publish`, {
     method: "POST",
-    body: JSON.stringify({ actor })
+    body: JSON.stringify({ org_id: input.orgId, actor: input.actor })
   });
 }
