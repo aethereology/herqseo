@@ -9,6 +9,9 @@ dependencies = []
 # OpenAI is the M0 model path. It is lazily imported by OpenAIProvider so the
 # core package (interfaces + metering) stays importable without it.
 openai = ["openai>=1.40"]
+# Anthropic (Claude) — the second provider behind the model-agnostic router,
+# lazily imported by AnthropicProvider.
+anthropic = ["anthropic>=0.40"]
 # httpx backs HttpPageFetcher (also lazily imported) for the M0 crawl step.
 crawl = ["httpx>=0.27"]
 # FastAPI adapter (app.py) — the TS<->Python boundary. Not imported by tests.

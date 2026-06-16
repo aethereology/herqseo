@@ -104,9 +104,17 @@ def build_service() -> LoopService:
     api_key = os.environ.get("OPENAI_API_KEY")
     if api_key:
         from .crawl import HttpPageFetcher
-        from .providers import OpenAIProvider
+        from .providers import OpenAIProvider, RoutingProvider
 
-        provider: object = OpenAIProvider(api_key=api_key)
+        # Model-agnostic router: OpenAI is always available; register Anthropic
+        # too when its key is set, so tasks can be routed per provider.
+        backends: dict[str, object] = {"openai": OpenAIProvider(api_key=api_key)}
+        anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
+        if anthropic_key:
+            from .providers import AnthropicProvider
+
+            backends["anthropic"] = AnthropicProvider(api_key=anthropic_key)
+        provider: object = RoutingProvider(backends)  # type: ignore[arg-type]
         fetcher: object = HttpPageFetcher()
     else:
         provider = _DemoProvider()

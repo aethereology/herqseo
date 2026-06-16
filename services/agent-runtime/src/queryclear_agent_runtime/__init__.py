@@ -71,11 +71,14 @@ from .publishing import (
     publish_content,
 )
 from .providers import (
+    ANTHROPIC_PRICING,
+    AnthropicProvider,
     ModelCall,
     ModelPricing,
     ModelProvider,
     OpenAIProvider,
     OPENAI_PRICING,
+    RoutingProvider,
     UnsupportedModel,
     run_model,
 )
@@ -88,9 +91,11 @@ from .runtime import (
 )
 
 __all__ = [
+    "ANTHROPIC_PRICING",
     "AgentHandle",
     "AgentRuntime",
     "AgentTask",
+    "AnthropicProvider",
     "ApprovalRequired",
     "AuditReport",
     "AuditEvent",
@@ -127,6 +132,7 @@ __all__ = [
     "PreflightError",
     "PublishOutcome",
     "PublishResult",
+    "RoutingProvider",
     "RunResult",
     "RunSummary",
     "SiteResources",

@@ -36,7 +36,7 @@ The loop, end to end, once: crawl one site → run visibility prompts → create
 ## Phase 1 — Core agent loop (Month 0–3 goal: 5 customers publishing)
 
 - [ ] **P1-1** Generalize the `AgentRuntime`/`HermesAgentRuntime` from M0 to multi-domain; expose full API to orchestration. See `specs/hermes-agent-layer.md`.
-- [ ] **P1-2** Model-agnostic router (OpenAI default; pluggable providers). See `docs/architecture.md`.
+- [~] **P1-2** Model-agnostic router (OpenAI default; pluggable providers). See `docs/architecture.md`. *Backbone landed (Session 21): `RoutingProvider` dispatches by `request.provider`; `AnthropicProvider` is a real second vendor (lazy SDK, `ANTHROPIC_PRICING`); `serve.py` registers OpenAI + Anthropic-when-keyed. Still to do: a per-task routing policy (`task_class → provider/model`) consulted at `ModelRequest` build sites, replacing the scattered model constants.*
 - [ ] **P1-3** Domain ingestion: crawl + store a customer's site structure and content.
 - [ ] **P1-4** Monitoring engine v1: audit brand visibility across 5 AI engines. See `specs/monitoring-engine.md`.
 - [ ] **P1-5** Opportunity generation: produce 10 prioritized, explainable recommendations.

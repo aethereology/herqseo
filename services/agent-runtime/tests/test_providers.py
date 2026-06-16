@@ -8,11 +8,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from queryclear_agent_runtime import (  # noqa: E402
+    AnthropicProvider,
     BudgetExceeded,
     InMemoryBudgetRepository,
     ModelPricing,
     ModelRequest,
     OpenAIProvider,
+    RoutingProvider,
     TokenBudget,
     TokenMeter,
     UnsupportedModel,
@@ -102,6 +104,87 @@ class OpenAIProviderTest(unittest.TestCase):
         provider = OpenAIProvider()
         with self.assertRaises(UnsupportedModel):
             provider.complete(_request(provider="anthropic"), "x")
+
+
+class _FakeAnthropicUsage:
+    def __init__(self, input_tokens: int, output_tokens: int) -> None:
+        self.input_tokens = input_tokens
+        self.output_tokens = output_tokens
+
+
+class _FakeTextBlock:
+    def __init__(self, text: str) -> None:
+        self.text = text
+
+
+class _FakeAnthropicResponse:
+    def __init__(self, text: str, input_tokens: int, output_tokens: int) -> None:
+        self.content = [_FakeTextBlock(text)]
+        self.usage = _FakeAnthropicUsage(input_tokens, output_tokens)
+
+
+class _FakeMessages:
+    def __init__(self, response: _FakeAnthropicResponse) -> None:
+        self._response = response
+        self.calls: list[dict[str, object]] = []
+
+    def create(self, **kwargs: object) -> _FakeAnthropicResponse:
+        self.calls.append(kwargs)
+        return self._response
+
+
+class _FakeAnthropic:
+    def __init__(self, response: _FakeAnthropicResponse) -> None:
+        self.messages = _FakeMessages(response)
+
+
+class AnthropicProviderTest(unittest.TestCase):
+    def _req(self, **over: object) -> ModelRequest:
+        return _request(model="claude-haiku-4-5-20251001", provider="anthropic", **over)
+
+    def test_complete_maps_usage_cost_and_system_arg(self) -> None:
+        fake = _FakeAnthropic(_FakeAnthropicResponse("hi", input_tokens=100, output_tokens=50))
+        provider = AnthropicProvider(client=fake)
+
+        response = provider.complete(self._req(), "draft this", system="be terse")
+
+        self.assertEqual(response.content, "hi")
+        self.assertEqual(response.input_tokens, 100)
+        self.assertEqual(response.output_tokens, 50)
+        # claude-haiku: 100 in @ $1.00/Mtok + 50 out @ $5.00/Mtok
+        self.assertEqual(
+            response.cost_usd,
+            Decimal("1.00") * 100 / 1_000_000 + Decimal("5.00") * 50 / 1_000_000,
+        )
+        call = fake.messages.calls[0]
+        self.assertEqual(call["system"], "be terse")  # system is top-level, not a message
+        self.assertEqual(call["messages"], [{"role": "user", "content": "draft this"}])
+
+    def test_rejects_non_anthropic_provider_without_client(self) -> None:
+        with self.assertRaises(UnsupportedModel):
+            AnthropicProvider().complete(_request(provider="openai", model="gpt-4.1"), "x")
+
+
+class RoutingProviderTest(unittest.TestCase):
+    def test_dispatches_by_request_provider(self) -> None:
+        openai = OpenAIProvider(client=_FakeOpenAI(_FakeResponse("from-openai", 10, 10)))
+        anthropic = AnthropicProvider(client=_FakeAnthropic(_FakeAnthropicResponse("from-claude", 10, 10)))
+        router = RoutingProvider({"openai": openai, "anthropic": anthropic})
+
+        oa = router.complete(_request(provider="openai"), "x")
+        an = router.complete(_request(provider="anthropic", model="claude-haiku-4-5-20251001"), "x")
+
+        self.assertEqual(oa.content, "from-openai")
+        self.assertEqual(an.content, "from-claude")
+
+    def test_unknown_provider_raises(self) -> None:
+        router = RoutingProvider({"openai": OpenAIProvider()})
+        with self.assertRaises(UnsupportedModel):
+            router.complete(_request(provider="gemini", model="x"), "x")
+
+    def test_requires_at_least_one_backend(self) -> None:
+        with self.assertRaises(ValueError):
+            RoutingProvider({})
 
 
 class RunModelTest(unittest.TestCase):
