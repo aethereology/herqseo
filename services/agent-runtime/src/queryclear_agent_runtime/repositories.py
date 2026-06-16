@@ -13,8 +13,31 @@ from __future__ import annotations
 from typing import Protocol, Sequence
 
 from .content import ContentPiece
-from .monitoring import Opportunity
+from .credentials import WordPressCredentials
+from .crawl import SiteSnapshot
+from .monitoring import Opportunity, VisibilityCheck
 from .publishing import AuditEvent
+
+
+class CmsCredentialRepository(Protocol):
+    def save_wordpress(
+        self, credentials: WordPressCredentials, *, org_id: str, domain_id: str
+    ) -> str: ...
+    def get_wordpress(self, ref: str, *, org_id: str) -> WordPressCredentials | None: ...
+    def get_wordpress_for_domain(
+        self, *, org_id: str, domain_id: str
+    ) -> WordPressCredentials | None: ...
+
+
+class CrawlSnapshotRepository(Protocol):
+    def save(self, snapshot: SiteSnapshot, *, org_id: str, domain_id: str) -> str: ...
+    def latest(self, *, org_id: str, domain_id: str) -> SiteSnapshot | None: ...
+
+
+class VisibilityCheckRepository(Protocol):
+    def save_all(
+        self, checks: Sequence[VisibilityCheck], *, org_id: str, domain_id: str
+    ) -> None: ...
 
 
 class DraftRepository(Protocol):
@@ -36,6 +59,61 @@ class AuditEventRepository(Protocol):
 class VoiceProfileRepository(Protocol):
     def get(self, *, org_id: str, domain_id: str) -> str | None: ...
     def save(self, *, org_id: str, domain_id: str, brand: str, guidelines: str) -> None: ...
+
+
+class InMemoryCrawlSnapshotRepository:
+    def __init__(self) -> None:
+        self._snapshots: dict[tuple[str, str], list[tuple[str, SiteSnapshot]]] = {}
+        self._next = 0
+
+    def save(self, snapshot: SiteSnapshot, *, org_id: str, domain_id: str) -> str:
+        self._next += 1
+        snapshot_id = f"crawl-{self._next}"
+        self._snapshots.setdefault((org_id, domain_id), []).append((snapshot_id, snapshot))
+        return snapshot_id
+
+    def latest(self, *, org_id: str, domain_id: str) -> SiteSnapshot | None:
+        snapshots = self._snapshots.get((org_id, domain_id), [])
+        return snapshots[-1][1] if snapshots else None
+
+
+class InMemoryCmsCredentialRepository:
+    def __init__(self) -> None:
+        self._by_ref: dict[str, tuple[str, str, WordPressCredentials]] = {}
+        self._next = 0
+
+    def save_wordpress(
+        self, credentials: WordPressCredentials, *, org_id: str, domain_id: str
+    ) -> str:
+        self._next += 1
+        ref = f"cmscred-{self._next}"
+        self._by_ref[ref] = (org_id, domain_id, credentials)
+        return ref
+
+    def get_wordpress(self, ref: str, *, org_id: str) -> WordPressCredentials | None:
+        saved = self._by_ref.get(ref)
+        if saved is None:
+            return None
+        owner, _domain_id, credentials = saved
+        return credentials if owner == org_id else None
+
+    def get_wordpress_for_domain(
+        self, *, org_id: str, domain_id: str
+    ) -> WordPressCredentials | None:
+        for owner, saved_domain_id, credentials in self._by_ref.values():
+            if owner == org_id and saved_domain_id == domain_id:
+                return credentials
+        return None
+
+
+class InMemoryVisibilityCheckRepository:
+    def __init__(self) -> None:
+        self.saved: list[VisibilityCheck] = []
+
+    def save_all(
+        self, checks: Sequence[VisibilityCheck], *, org_id: str, domain_id: str
+    ) -> None:
+        self.saved.extend(checks)
 
 
 class InMemoryDraftRepository:

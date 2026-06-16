@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from .audit import AuditReport
@@ -13,16 +14,24 @@ from .content import (
 from .crawl import PageFetcher, check_site_resources, crawl_site
 from .metering import TokenMeter
 from .monitoring import Opportunity, run_monitoring
-from .providers import ModelProvider
-from .publishing import CmsPublisher, PublishOutcome, publish_content
+from .monitoring import DEFAULT_MONITORING_ENGINES
+from .providers import ModelProvider, ModelRoutingPolicy
+from .publishing import CmsPublisher, PublishOutcome, WordPressPublisher, publish_content
+from .recommendations import build_recommendations
 from .repositories import (
     AuditEventRepository,
+    CmsCredentialRepository,
+    CrawlSnapshotRepository,
     DraftRepository,
     InMemoryAuditEventRepository,
+    InMemoryCmsCredentialRepository,
+    InMemoryCrawlSnapshotRepository,
     InMemoryDraftRepository,
     InMemoryOpportunityRepository,
+    InMemoryVisibilityCheckRepository,
     InMemoryVoiceProfileRepository,
     OpportunityRepository,
+    VisibilityCheckRepository,
     VoiceProfileRepository,
 )
 from .technical import audit_site_resources, audit_snapshot
@@ -53,7 +62,19 @@ class LoopService:
     fetcher: PageFetcher
     voice: BrandVoice
     publisher: CmsPublisher | None = None
+    publisher_factory: Callable[..., CmsPublisher] = WordPressPublisher
+    routing_policy: ModelRoutingPolicy = field(default_factory=ModelRoutingPolicy)
+    monitoring_engines: tuple[str, ...] = DEFAULT_MONITORING_ENGINES
     autonomy_mode: str = "review"
+    cms_credentials: CmsCredentialRepository = field(
+        default_factory=InMemoryCmsCredentialRepository
+    )
+    crawl_snapshots: CrawlSnapshotRepository = field(
+        default_factory=InMemoryCrawlSnapshotRepository
+    )
+    visibility_checks: VisibilityCheckRepository = field(
+        default_factory=InMemoryVisibilityCheckRepository
+    )
     drafts: DraftRepository = field(default_factory=InMemoryDraftRepository)
     opportunities: OpportunityRepository = field(
         default_factory=InMemoryOpportunityRepository
@@ -84,6 +105,7 @@ class LoopService:
         voice = derive_brand_voice(
             self.meter, self.provider, snapshot, resolved_brand,
             org_id=org_id, domain_id=domain_id, fallback=self.voice.guidelines,
+            routing_policy=self.routing_policy,
         )
         self.voice_profiles.save(
             org_id=org_id, domain_id=domain_id,
@@ -103,9 +125,15 @@ class LoopService:
         samples: int = 3,
     ) -> RunSummary:
         snapshot = crawl_site(self.fetcher, domain_url, seed_paths)
+        self.crawl_snapshots.save(snapshot, org_id=org_id, domain_id=domain_id)
         monitoring = run_monitoring(
             self.meter, self.provider, snapshot, brand,
             org_id=org_id, domain_id=domain_id, samples=samples,
+            engines=self.monitoring_engines,
+            routing_policy=self.routing_policy,
+        )
+        self.visibility_checks.save_all(
+            monitoring.checks, org_id=org_id, domain_id=domain_id
         )
         self.opportunities.save_all(
             monitoring.opportunities, org_id=org_id, domain_id=domain_id
@@ -118,6 +146,7 @@ class LoopService:
             draft = generate_content_draft(
                 self.meter, self.provider, monitoring.opportunities[0], voice,
                 org_id=org_id, domain_id=domain_id,
+                routing_policy=self.routing_policy,
             )
             self.drafts.save(draft)
         self._runs += 1
@@ -149,6 +178,8 @@ class LoopService:
         monitoring = run_monitoring(
             self.meter, self.provider, snapshot, brand,
             org_id=org_id, domain_id=domain_id, samples=samples, max_prompts=max_prompts,
+            engines=self.monitoring_engines,
+            routing_policy=self.routing_policy,
         )
         sample: ContentPiece | None = None
         if monitoring.opportunities:
@@ -158,11 +189,14 @@ class LoopService:
             voice = derive_brand_voice(
                 self.meter, self.provider, snapshot, brand,
                 org_id=org_id, domain_id=domain_id, fallback=self.voice.guidelines,
+                routing_policy=self.routing_policy,
             )
             sample = generate_content_draft(
                 self.meter, self.provider, monitoring.opportunities[0], voice,
                 org_id=org_id, domain_id=domain_id,
+                routing_policy=self.routing_policy,
             )
+        recommendations = build_recommendations(findings, list(monitoring.checks))
         return AuditReport(
             domain_url=domain_url,
             page_title=snapshot.pages[0].title if snapshot.pages else "",
@@ -170,6 +204,7 @@ class LoopService:
             checks=monitoring.checks,
             opportunities=monitoring.opportunities,
             sample_draft=sample,
+            recommendations=tuple(recommendations),
         )
 
     def get_draft(self, draft_id: str, *, org_id: str) -> ContentPiece:
@@ -195,11 +230,12 @@ class LoopService:
         return reviewed
 
     def publish(self, draft_id: str, *, org_id: str, actor: str) -> PublishOutcome:
-        if self.publisher is None:
-            raise LoopError("no CMS publisher configured")
         piece = self.get_draft(draft_id, org_id=org_id)
+        publisher = self._publisher_for_piece(piece)
+        if publisher is None:
+            raise LoopError("no CMS publisher configured")
         outcome = publish_content(
-            self.publisher, piece,
+            publisher, piece,
             autonomy_mode=self.autonomy_mode, actor=actor, audit_log=[],
         )
         self.audit_events.append(
@@ -207,3 +243,15 @@ class LoopService:
         )
         self.drafts.save(outcome.piece)
         return outcome
+
+    def _publisher_for_piece(self, piece: ContentPiece) -> CmsPublisher | None:
+        credentials = self.cms_credentials.get_wordpress_for_domain(
+            org_id=piece.org_id, domain_id=piece.domain_id
+        )
+        if credentials is not None:
+            return self.publisher_factory(
+                base_url=credentials.base_url,
+                username=credentials.username,
+                app_password=credentials.app_password,
+            )
+        return self.publisher

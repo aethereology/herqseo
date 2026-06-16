@@ -63,6 +63,12 @@ export default async function Home() {
               >
                 Run an AI Search Audit
               </Link>
+              <Link
+                href="/settings"
+                className="rounded border border-line px-3 py-2 text-center text-sm font-semibold text-ink transition hover:bg-paper sm:col-span-2"
+              >
+                WordPress settings
+              </Link>
               <form action={signOutOfDashboard} className="sm:col-span-2">
                 <button
                   className="w-full rounded border border-line px-3 py-2 text-sm font-semibold text-ink transition hover:bg-paper"

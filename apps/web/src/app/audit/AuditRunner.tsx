@@ -4,6 +4,7 @@ import { useState } from "react";
 import type {
   AuditFinding,
   AuditQuery,
+  AuditRecommendation,
   AuditReportData,
   RuntimeDraft
 } from "../../lib/agent-runtime";
@@ -126,6 +127,16 @@ function Report({ report }: { report: AuditReportData }) {
         </div>
       </header>
 
+      {report.recommendations.length > 0 ? (
+        <Section title={`Prioritized recommendations (${report.recommendations.length})`}>
+          <ol className="divide-y divide-line">
+            {report.recommendations.map((r) => (
+              <RecRow key={r.rank} r={r} />
+            ))}
+          </ol>
+        </Section>
+      ) : null}
+
       <Section title={`Technical findings (${report.findings.length})`}>
         {report.findings.length === 0 ? (
           <p className="px-5 py-4 text-sm text-ink/60">No on-page issues found in the checks we run.</p>
@@ -139,9 +150,18 @@ function Report({ report }: { report: AuditReportData }) {
       </Section>
 
       <Section title={`AI visibility (${report.queries.length} queries tested)`}>
+        {report.queries.some((q) => !q.measured) ? (
+          <p className="border-b border-line bg-paper/60 px-5 py-3 text-xs leading-5 text-ink/60">
+            Results marked <EstBadge /> are modeled estimates: a language model
+            answering as that engine would, sampled repeatedly — not a live query
+            to the engine itself. They show where you&apos;re likely invisible, not a
+            measured citation rate. Direct, compliant per-engine measurement rolls
+            out as each engine&apos;s API is connected.
+          </p>
+        ) : null}
         <ul className="divide-y divide-line">
           {report.queries.map((q) => (
-            <QueryRow key={q.query} q={q} />
+            <QueryRow key={`${q.engine}-${q.query}`} q={q} />
           ))}
         </ul>
       </Section>
@@ -178,6 +198,30 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
+function RecRow({ r }: { r: AuditRecommendation }) {
+  const estimated = r.provenance === "estimated";
+  return (
+    <li className="flex gap-3 px-5 py-4">
+      <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-ink text-xs font-semibold text-paper">
+        {r.rank}
+      </span>
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-2">
+          <h4 className="text-sm font-semibold text-ink">{r.title}</h4>
+          <span className="rounded border border-line bg-paper px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-ink/55">
+            {r.kind}
+          </span>
+          {estimated ? <EstBadge /> : null}
+        </div>
+        <p className="mt-1 text-sm text-ink/65">{r.rationale}</p>
+        <p className="mt-1 text-sm text-ink/80">
+          <span className="font-medium text-moss">Do:</span> {r.action}
+        </p>
+      </div>
+    </li>
+  );
+}
+
 function FindingRow({ f }: { f: AuditFinding }) {
   return (
     <li className="px-5 py-4">
@@ -197,15 +241,33 @@ function FindingRow({ f }: { f: AuditFinding }) {
   );
 }
 
+function EstBadge() {
+  return (
+    <span
+      className="inline-block rounded border border-line bg-paper px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-ink/45"
+      title="Modeled estimate — a language model answering as this engine would, not a live query to the engine."
+    >
+      est.
+    </span>
+  );
+}
+
 function QueryRow({ q }: { q: AuditQuery }) {
   const invisible = q.cited_count === 0;
   return (
     <li className="flex items-center justify-between gap-3 px-5 py-3">
-      <span className="text-sm text-ink">{q.query}</span>
+      <span className="min-w-0 text-sm text-ink">
+        <span className="mr-2 inline-flex items-center gap-1 rounded border border-line bg-paper px-1.5 py-0.5 text-[11px] font-semibold uppercase text-ink/55">
+          {q.engine.replaceAll("_", " ")}
+          {!q.measured ? <EstBadge /> : null}
+        </span>
+        {q.query}
+      </span>
       <span
         className={`shrink-0 rounded border px-2 py-0.5 text-xs font-semibold ${
           invisible ? "border-ink/30 bg-ink text-paper" : "border-moss/40 bg-moss/10 text-moss"
         }`}
+        title={`95% confidence: ${(q.confidence_low * 100).toFixed(0)}%-${(q.confidence_high * 100).toFixed(0)}%`}
       >
         {invisible ? "not cited" : `cited ${q.cited_count}/${q.samples}`}
       </span>

@@ -38,6 +38,25 @@ export interface PublishResponse {
   status: string;
 }
 
+export interface WordPressPreflightResponse {
+  ok: boolean;
+  message: string;
+}
+
+export interface WordPressConnectResponse {
+  ok: boolean;
+  credentials_ref: string;
+  base_url: string;
+  username: string;
+  message: string;
+}
+
+export interface WordPressStatusResponse {
+  connected: boolean;
+  base_url?: string;
+  username?: string;
+}
+
 export interface AuditFinding {
   code: string;
   severity: string;
@@ -48,10 +67,27 @@ export interface AuditFinding {
 }
 
 export interface AuditQuery {
+  engine: string;
   query: string;
   cited_count: number;
   samples: number;
   citation_frequency: number;
+  confidence_low: number;
+  confidence_high: number;
+  // True only for a real, compliant query to the engine itself. False = a model
+  // standing in for the engine (an estimate, not a live measurement).
+  measured: boolean;
+}
+
+export interface AuditRecommendation {
+  rank: number;
+  priority: number;
+  kind: string;
+  title: string;
+  rationale: string;
+  action: string;
+  provenance: string; // "measured" | "estimated"
+  evidence: string;
 }
 
 export interface AuditReportData {
@@ -60,6 +96,7 @@ export interface AuditReportData {
   findings: AuditFinding[];
   queries: AuditQuery[];
   opportunities: RuntimeOpportunity[];
+  recommendations: AuditRecommendation[];
   sample_draft: RuntimeDraft | null;
 }
 
@@ -89,7 +126,11 @@ async function call<T>(path: string, init: RequestInit): Promise<T> {
   }
 
   if (!response.ok) {
-    const detail = await response.text().catch(() => "");
+    const detail = await response
+      .clone()
+      .json()
+      .then((body: { error?: string; detail?: string }) => body.error ?? body.detail ?? "")
+      .catch(async () => response.text().catch(() => ""));
     throw new AgentRuntimeError(detail || response.statusText, response.status);
   }
 
@@ -159,5 +200,52 @@ export function publishDraft(
   return call<PublishResponse>(`/drafts/${encodeURIComponent(draftId)}/publish`, {
     method: "POST",
     body: JSON.stringify({ org_id: input.orgId, actor: input.actor })
+  });
+}
+
+export function preflightWordPress(input: {
+  baseUrl: string;
+  username: string;
+  appPassword: string;
+}): Promise<WordPressPreflightResponse> {
+  return call<WordPressPreflightResponse>("/integrations/wordpress/preflight", {
+    method: "POST",
+    body: JSON.stringify({
+      base_url: input.baseUrl,
+      username: input.username,
+      app_password: input.appPassword
+    })
+  });
+}
+
+export function connectWordPress(input: {
+  orgId: string;
+  domainId: string;
+  baseUrl: string;
+  username: string;
+  appPassword: string;
+}): Promise<WordPressConnectResponse> {
+  return call<WordPressConnectResponse>("/integrations/wordpress/connect", {
+    method: "POST",
+    body: JSON.stringify({
+      org_id: input.orgId,
+      domain_id: input.domainId,
+      base_url: input.baseUrl,
+      username: input.username,
+      app_password: input.appPassword
+    })
+  });
+}
+
+export function getWordPressStatus(input: {
+  orgId: string;
+  domainId: string;
+}): Promise<WordPressStatusResponse> {
+  const params = new URLSearchParams({
+    org_id: input.orgId,
+    domain_id: input.domainId
+  });
+  return call<WordPressStatusResponse>(`/integrations/wordpress/status?${params}`, {
+    method: "GET"
   });
 }

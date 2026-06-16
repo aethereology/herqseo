@@ -7,14 +7,12 @@ from uuid import uuid4
 from .crawl import SiteSnapshot
 from .metering import ModelRequest, TokenMeter
 from .monitoring import Opportunity
-from .providers import ModelProvider, run_model
+from .providers import ModelProvider, ModelRoutingPolicy, resolve_model_route, run_model
 
-# Content generation uses a frontier model for quality (content-engine.md).
-_CONTENT_MODEL = "gpt-4.1"
+_TASK_CLASSIFICATION = "classification"
+_TASK_CONTENT_GENERATION = "content_generation"
 _MAX_OUTPUT_TOKENS = 1200
 
-# Brand-voice derivation is a cheap analysis task (a short style guide).
-_VOICE_MODEL = "gpt-4.1-mini"
 _VOICE_MAX_OUTPUT_TOKENS = 200
 _MIN_VOICE_CORPUS = 200  # chars of site copy below which there's too little signal
 _DEFAULT_VOICE_GUIDELINES = (
@@ -75,7 +73,8 @@ def derive_brand_voice(
     org_id: str,
     domain_id: str,
     fallback: str = _DEFAULT_VOICE_GUIDELINES,
-    model: str = _VOICE_MODEL,
+    routing_policy: ModelRoutingPolicy | None = None,
+    model: str | None = None,
 ) -> BrandVoice:
     """Derive a brand-voice profile from the brand's OWN site copy (metered), so
     generated content matches how they actually write — the "training" step of
@@ -91,12 +90,15 @@ def derive_brand_voice(
         "sentence length, and what to avoid. Output only the guideline text.\n\n"
         f"{corpus}"
     )
+    route = resolve_model_route(
+        _TASK_CLASSIFICATION, routing_policy, model=model
+    )
     request = ModelRequest(
         org_id=org_id,
         domain_id=domain_id,
-        task_class="classification",
-        provider="openai",
-        model=model,
+        task_class=_TASK_CLASSIFICATION,
+        provider=route.provider,
+        model=route.model,
         estimated_input_tokens=max(64, len(prompt) // 4),
         max_output_tokens=_VOICE_MAX_OUTPUT_TOKENS,
     )
@@ -124,7 +126,8 @@ def generate_content_draft(
     *,
     org_id: str,
     domain_id: str,
-    model: str = _CONTENT_MODEL,
+    routing_policy: ModelRoutingPolicy | None = None,
+    model: str | None = None,
 ) -> ContentPiece:
     """Generate ONE brand-voiced draft for a content opportunity, metered, and
     return it awaiting human review."""
@@ -139,12 +142,15 @@ def generate_content_draft(
         f"Why this matters: {opportunity.rationale}\n"
         "Write the article."
     )
+    route = resolve_model_route(
+        _TASK_CONTENT_GENERATION, routing_policy, model=model
+    )
     request = ModelRequest(
         org_id=org_id,
         domain_id=domain_id,
-        task_class="content_generation",
-        provider="openai",
-        model=model,
+        task_class=_TASK_CONTENT_GENERATION,
+        provider=route.provider,
+        model=route.model,
         estimated_input_tokens=max(64, len(prompt) // 4),
         max_output_tokens=_MAX_OUTPUT_TOKENS,
     )
@@ -157,7 +163,7 @@ def generate_content_draft(
         title=opportunity.title,
         body=call.response.content,
         status="pending_approval",
-        model=model,
+        model=route.model,
         usage_record_id=call.budget.usage.id,
         cost_usd=call.response.cost_usd,
     )

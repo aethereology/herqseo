@@ -8,13 +8,18 @@ types are kept portable so the same code runs on Postgres and on SQLite (tests).
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from decimal import Decimal
+from typing import Sequence
 from uuid import uuid4
 
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 from .content import ContentPiece
+from .credentials import SecretCipher, WordPressCredentials
+from .crawl import Page, SiteSnapshot
 from .metering import BudgetExceeded, TokenBudget, UsageRecord
+from .monitoring import VisibilityCheck
 from .publishing import AuditEvent
 
 metadata = sa.MetaData()
@@ -49,6 +54,22 @@ _CONTENT_STATUS = _pg_enum(
     "ContentStatus", "draft", "pending_approval", "approved", "rejected",
     "published", "failed",
 )
+_AI_ENGINE = _pg_enum(
+    "AiEngine",
+    "chatgpt",
+    "google_ai_overviews",
+    "google_ai_mode",
+    "gemini",
+    "perplexity",
+    "claude",
+    "copilot",
+    "grok",
+)
+_INTEGRATION_KIND = _pg_enum(
+    "IntegrationKind", "ga4", "gsc", "hubspot", "salesforce", "shopify", "wordpress", "webflow"
+)
+_INTEGRATION_STATUS = _pg_enum("IntegrationStatus", "connected", "disconnected", "error")
+_DOMAIN_STATUS = _pg_enum("DomainStatus", "onboarding", "active", "paused")
 
 # Minimal projections of the real tables — only the columns this repo touches.
 organizations = sa.Table(
@@ -57,6 +78,40 @@ organizations = sa.Table(
     sa.Column("id", _UUID, primary_key=True),
     sa.Column("token_budget_monthly", sa.Integer, nullable=False),
     sa.Column("token_used_current_period", sa.Integer, nullable=False, default=0),
+)
+
+domains = sa.Table(
+    "domains",
+    metadata,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("org_id", _UUID, nullable=False),
+    sa.Column("url", sa.String, nullable=False),
+    sa.Column("cms_type", sa.String, nullable=False),
+    sa.Column("cms_credentials_ref", sa.String, nullable=True),
+    sa.Column("status", _DOMAIN_STATUS, nullable=False),
+)
+
+integrations = sa.Table(
+    "integrations",
+    metadata,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("org_id", _UUID, nullable=False),
+    sa.Column("kind", _INTEGRATION_KIND, nullable=False),
+    sa.Column("credentials_ref", sa.String, nullable=False),
+    sa.Column("status", _INTEGRATION_STATUS, nullable=False),
+    sa.Column("connected_at", _TS, nullable=True),
+)
+
+cms_credentials = sa.Table(
+    "cms_credentials",
+    metadata,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("org_id", _UUID, nullable=False),
+    sa.Column("domain_id", _UUID, nullable=False),
+    sa.Column("kind", _INTEGRATION_KIND, nullable=False),
+    sa.Column("encrypted_payload", sa.String, nullable=False),
+    sa.Column("created_at", _TS, nullable=False),
+    sa.Column("updated_at", _TS, nullable=False),
 )
 
 model_usage = sa.Table(
@@ -85,6 +140,7 @@ opportunities = sa.Table(
     sa.Column("title", sa.String, nullable=False),
     sa.Column("rationale", sa.String, nullable=False),
     sa.Column("source_prompt", sa.String, nullable=True),
+    sa.Column("source_engine", _AI_ENGINE, nullable=True),
     sa.Column("status", _OPP_STATUS, nullable=False),
 )
 
@@ -132,6 +188,54 @@ brand_voice_profiles = sa.Table(
     sa.Column("guidelines", sa.String, nullable=False),
     sa.Column("source", sa.String, nullable=False),
     sa.Column("updated_at", _TS, nullable=False),
+)
+
+
+crawl_snapshots = sa.Table(
+    "crawl_snapshots",
+    metadata,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("org_id", _UUID, nullable=False),
+    sa.Column("domain_id", _UUID, nullable=False),
+    sa.Column("captured_at", _TS, nullable=False),
+    sa.Column("page_count", sa.Integer, nullable=False),
+    sa.Column("storage_ref", sa.String, nullable=False),
+)
+
+
+crawl_pages = sa.Table(
+    "crawl_pages",
+    metadata,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("org_id", _UUID, nullable=False),
+    sa.Column("domain_id", _UUID, nullable=False),
+    sa.Column("snapshot_id", _UUID, nullable=False),
+    sa.Column("ordinal", sa.Integer, nullable=False),
+    sa.Column("url", sa.String, nullable=False),
+    sa.Column("title", sa.String, nullable=False),
+    sa.Column("headings", sa.JSON, nullable=False),
+    sa.Column("text", sa.String, nullable=False),
+    sa.Column("meta_description", sa.String, nullable=False),
+    sa.Column("has_structured_data", sa.Boolean, nullable=False),
+    sa.Column("links", sa.JSON, nullable=False),
+    sa.Column("captured_at", _TS, nullable=False),
+)
+
+
+visibility_checks = sa.Table(
+    "visibility_checks",
+    metadata,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("org_id", _UUID, nullable=False),
+    sa.Column("domain_id", _UUID, nullable=False),
+    sa.Column("engine", _AI_ENGINE, nullable=False),
+    sa.Column("prompt", sa.String, nullable=False),
+    sa.Column("captured_at", _TS, nullable=False),
+    sa.Column("brand_cited", sa.Boolean, nullable=False),
+    sa.Column("citation_rank", sa.Integer, nullable=True),
+    sa.Column("sentiment", sa.String, nullable=True),
+    sa.Column("share_of_voice", sa.Numeric(8, 4), nullable=True),
+    sa.Column("raw_response_ref", sa.String, nullable=False),
 )
 
 
@@ -214,6 +318,114 @@ class SqlBudgetRepository:
                 sa.text("SELECT set_config('app.current_org', :org, true)"),
                 {"org": org_id},
             )
+
+
+class SqlCmsCredentialRepository:
+    """Stores encrypted CMS credentials and links the active domain/integration.
+
+    The table stores ciphertext only. The returned ref is intentionally opaque to
+    callers; today it is `cms_credentials:<uuid>` so the runtime can resolve it.
+    """
+
+    def __init__(self, engine: sa.Engine, cipher: SecretCipher) -> None:
+        self._engine = engine
+        self._cipher = cipher
+
+    def save_wordpress(
+        self, credentials: WordPressCredentials, *, org_id: str, domain_id: str
+    ) -> str:
+        now = datetime.now(UTC).isoformat()
+        encrypted = self._cipher.encrypt_wordpress(credentials)
+        with self._engine.begin() as conn:
+            _scope_conn(conn, org_id)
+            existing = conn.execute(
+                sa.select(cms_credentials.c.id).where(
+                    cms_credentials.c.org_id == org_id,
+                    cms_credentials.c.domain_id == domain_id,
+                    cms_credentials.c.kind == "wordpress",
+                )
+            ).first()
+            if existing:
+                credential_id = existing[0]
+                conn.execute(
+                    sa.update(cms_credentials)
+                    .where(
+                        cms_credentials.c.id == credential_id,
+                        cms_credentials.c.org_id == org_id,
+                    )
+                    .values(encrypted_payload=encrypted, updated_at=now)
+                )
+            else:
+                credential_id = str(uuid4())
+                conn.execute(
+                    sa.insert(cms_credentials).values(
+                        id=credential_id,
+                        org_id=org_id,
+                        domain_id=domain_id,
+                        kind="wordpress",
+                        encrypted_payload=encrypted,
+                        created_at=now,
+                        updated_at=now,
+                    )
+                )
+
+            ref = f"cms_credentials:{credential_id}"
+            conn.execute(
+                sa.update(domains)
+                .where(domains.c.id == domain_id, domains.c.org_id == org_id)
+                .values(cms_credentials_ref=ref, status="active")
+            )
+
+            updated = conn.execute(
+                sa.update(integrations)
+                .where(integrations.c.org_id == org_id, integrations.c.kind == "wordpress")
+                .values(credentials_ref=ref, status="connected", connected_at=now)
+            )
+            if updated.rowcount == 0:
+                conn.execute(
+                    sa.insert(integrations).values(
+                        id=str(uuid4()),
+                        org_id=org_id,
+                        kind="wordpress",
+                        credentials_ref=ref,
+                        status="connected",
+                        connected_at=now,
+                    )
+                )
+        return ref
+
+    def get_wordpress(self, ref: str, *, org_id: str) -> WordPressCredentials | None:
+        prefix = "cms_credentials:"
+        if not ref.startswith(prefix):
+            return None
+        credential_id = ref.removeprefix(prefix)
+        with self._engine.begin() as conn:
+            _scope_conn(conn, org_id)
+            row = conn.execute(
+                sa.select(cms_credentials.c.encrypted_payload).where(
+                    cms_credentials.c.id == credential_id,
+                    cms_credentials.c.org_id == org_id,
+                    cms_credentials.c.kind == "wordpress",
+                )
+            ).first()
+        if row is None:
+            return None
+        return self._cipher.decrypt_wordpress(row[0])
+
+    def get_wordpress_for_domain(
+        self, *, org_id: str, domain_id: str
+    ) -> WordPressCredentials | None:
+        with self._engine.begin() as conn:
+            _scope_conn(conn, org_id)
+            row = conn.execute(
+                sa.select(domains.c.cms_credentials_ref).where(
+                    domains.c.org_id == org_id,
+                    domains.c.id == domain_id,
+                )
+            ).first()
+        if row is None or row[0] is None:
+            return None
+        return self.get_wordpress(str(row[0]), org_id=org_id)
 
 
 def _iso(value: object) -> str | None:
@@ -311,6 +523,7 @@ class SqlOpportunityRepository:
                 "title": opp.title,
                 "rationale": opp.rationale,
                 "source_prompt": opp.prompt_id,
+                "source_engine": opp.source_engine,
                 "status": opp.status,
             }
             for opp in items
@@ -320,6 +533,53 @@ class SqlOpportunityRepository:
         with self._engine.begin() as conn:
             _scope_conn(conn, org_id)
             conn.execute(sa.insert(opportunities), rows)
+
+
+class SqlVisibilityCheckRepository:
+    """Postgres/SQLite-backed visibility evidence store.
+
+    Runtime checks are aggregated by prompt+engine, while the DB table stores one
+    row per sampled response. Saving expands each aggregate back into raw,
+    explainable sample rows.
+    """
+
+    def __init__(self, engine: sa.Engine) -> None:
+        self._engine = engine
+
+    def save_all(
+        self, checks: Sequence[VisibilityCheck], *, org_id: str, domain_id: str
+    ) -> None:
+        captured_at = datetime.now(UTC).isoformat()
+        rows: list[dict[str, object]] = []
+        for check in checks:
+            needle = check.brand.lower()
+            for index, raw in enumerate(check.raw_responses):
+                cited = needle in raw.lower()
+                usage_id = (
+                    check.usage_record_ids[index]
+                    if index < len(check.usage_record_ids)
+                    else "unknown"
+                )
+                rows.append(
+                    {
+                        "id": str(uuid4()),
+                        "org_id": org_id,
+                        "domain_id": domain_id,
+                        "engine": check.engine,
+                        "prompt": check.query,
+                        "captured_at": captured_at,
+                        "brand_cited": cited,
+                        "citation_rank": 1 if cited else None,
+                        "sentiment": "neutral",
+                        "share_of_voice": Decimal("1.0000") if cited else Decimal("0.0000"),
+                        "raw_response_ref": f"inline:model_usage:{usage_id}:{raw}",
+                    }
+                )
+        if not rows:
+            return
+        with self._engine.begin() as conn:
+            _scope_conn(conn, org_id)
+            conn.execute(sa.insert(visibility_checks), rows)
 
 
 class SqlAuditEventRepository:
@@ -403,3 +663,85 @@ class SqlVoiceProfileRepository:
                         brand=brand, guidelines=guidelines, source="derived", updated_at=now,
                     )
                 )
+
+
+class SqlCrawlSnapshotRepository:
+    """Postgres/SQLite-backed crawl ingestion store. A snapshot row captures the
+    crawl event and `crawl_pages` stores the queryable site structure/content."""
+
+    def __init__(self, engine: sa.Engine) -> None:
+        self._engine = engine
+
+    def save(self, snapshot: SiteSnapshot, *, org_id: str, domain_id: str) -> str:
+        snapshot_id = str(uuid4())
+        captured_at = datetime.now(UTC).isoformat()
+        page_rows = [
+            {
+                "id": str(uuid4()),
+                "org_id": org_id,
+                "domain_id": domain_id,
+                "snapshot_id": snapshot_id,
+                "ordinal": index,
+                "url": page.url,
+                "title": page.title,
+                "headings": list(page.headings),
+                "text": page.text,
+                "meta_description": page.meta_description,
+                "has_structured_data": page.has_structured_data,
+                "links": list(page.links),
+                "captured_at": captured_at,
+            }
+            for index, page in enumerate(snapshot.pages)
+        ]
+        with self._engine.begin() as conn:
+            _scope_conn(conn, org_id)
+            conn.execute(
+                sa.insert(crawl_snapshots).values(
+                    id=snapshot_id,
+                    org_id=org_id,
+                    domain_id=domain_id,
+                    captured_at=captured_at,
+                    page_count=len(snapshot.pages),
+                    storage_ref=f"inline:crawl_pages:{snapshot.domain}",
+                )
+            )
+            if page_rows:
+                conn.execute(sa.insert(crawl_pages), page_rows)
+        return snapshot_id
+
+    def latest(self, *, org_id: str, domain_id: str) -> SiteSnapshot | None:
+        with self._engine.begin() as conn:
+            _scope_conn(conn, org_id)
+            snapshot = conn.execute(
+                sa.select(crawl_snapshots)
+                .where(
+                    crawl_snapshots.c.org_id == org_id,
+                    crawl_snapshots.c.domain_id == domain_id,
+                )
+                .order_by(crawl_snapshots.c.captured_at.desc())
+                .limit(1)
+            ).mappings().first()
+            if snapshot is None:
+                return None
+            rows = conn.execute(
+                sa.select(crawl_pages)
+                .where(crawl_pages.c.snapshot_id == snapshot["id"])
+                .order_by(crawl_pages.c.ordinal)
+            ).mappings().all()
+        storage_ref = str(snapshot["storage_ref"])
+        domain = storage_ref.removeprefix("inline:crawl_pages:")
+        return SiteSnapshot(
+            domain=domain if storage_ref.startswith("inline:crawl_pages:") else "",
+            pages=tuple(
+                Page(
+                    url=row["url"],
+                    title=row["title"],
+                    headings=tuple(row["headings"] or []),
+                    text=row["text"],
+                    meta_description=row["meta_description"],
+                    has_structured_data=bool(row["has_structured_data"]),
+                    links=tuple(row["links"] or []),
+                )
+                for row in rows
+            ),
+        )

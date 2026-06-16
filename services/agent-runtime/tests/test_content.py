@@ -12,6 +12,8 @@ from queryclear_agent_runtime import (  # noqa: E402
     BrandVoice,
     ContentPiece,
     InMemoryBudgetRepository,
+    ModelRoute,
+    ModelRoutingPolicy,
     ModelResponse,
     Opportunity,
     Page,
@@ -28,10 +30,12 @@ from queryclear_agent_runtime import (  # noqa: E402
 class _RecordingProvider:
     def __init__(self, body: str) -> None:
         self._body = body
+        self.requests = []
         self.prompts: list[str] = []
         self.systems: list[str | None] = []
 
     def complete(self, request, prompt, *, system=None) -> ModelResponse:
+        self.requests.append(request)
         self.prompts.append(prompt)
         self.systems.append(system)
         return ModelResponse(
@@ -103,6 +107,26 @@ class GenerateContentDraftTest(unittest.TestCase):
                 org_id="org_1", domain_id="domain_1",
             )
 
+    def test_uses_routing_policy_for_content_generation(self) -> None:
+        meter, _ = _meter()
+        provider = _RecordingProvider("body")
+        policy = ModelRoutingPolicy(
+            {
+                "content_generation": ModelRoute(
+                    provider="anthropic", model="claude-sonnet-4-6"
+                )
+            }
+        )
+
+        piece = generate_content_draft(
+            meter, provider, _opportunity(), _voice(),
+            org_id="org_1", domain_id="domain_1", routing_policy=policy,
+        )
+
+        self.assertEqual(provider.requests[0].provider, "anthropic")
+        self.assertEqual(provider.requests[0].model, "claude-sonnet-4-6")
+        self.assertEqual(piece.model, "claude-sonnet-4-6")
+
 
 def _rich_snapshot() -> SiteSnapshot:
     body = (
@@ -130,6 +154,25 @@ class DeriveBrandVoiceTest(unittest.TestCase):
         self.assertEqual(len(repo.records), 1)
         self.assertEqual(repo.records[0].task_class, "classification")
         self.assertIn("accounts payable", provider.prompts[0].lower())
+
+    def test_uses_routing_policy_for_voice_derivation(self) -> None:
+        meter, _ = _meter()
+        provider = _RecordingProvider("Direct and plain-spoken.")
+        policy = ModelRoutingPolicy(
+            {
+                "classification": ModelRoute(
+                    provider="anthropic", model="claude-haiku-4-5-20251001"
+                )
+            }
+        )
+
+        derive_brand_voice(
+            meter, provider, _rich_snapshot(), "Acme",
+            org_id="org_1", domain_id="domain_1", routing_policy=policy,
+        )
+
+        self.assertEqual(provider.requests[0].provider, "anthropic")
+        self.assertEqual(provider.requests[0].model, "claude-haiku-4-5-20251001")
 
     def test_falls_back_when_site_too_thin(self) -> None:
         meter, repo = _meter()

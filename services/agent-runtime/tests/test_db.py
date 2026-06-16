@@ -10,16 +10,27 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import sqlalchemy as sa  # noqa: E402
 
 from queryclear_agent_runtime.content import ContentPiece  # noqa: E402
+from queryclear_agent_runtime.crawl import Page, SiteSnapshot  # noqa: E402
 from queryclear_agent_runtime.db import (  # noqa: E402
     SqlAuditEventRepository,
     SqlBudgetRepository,
+    SqlCmsCredentialRepository,
+    SqlCrawlSnapshotRepository,
     SqlDraftRepository,
     SqlOpportunityRepository,
+    SqlVisibilityCheckRepository,
     SqlVoiceProfileRepository,
+    cms_credentials,
+    crawl_pages,
+    crawl_snapshots,
+    domains,
+    integrations,
     metadata,
     opportunities,
     organizations,
+    visibility_checks,
 )
+from queryclear_agent_runtime.credentials import SecretCipher, WordPressCredentials  # noqa: E402
 from queryclear_agent_runtime.metering import (  # noqa: E402
     BudgetExceeded,
     ModelRequest,
@@ -27,7 +38,7 @@ from queryclear_agent_runtime.metering import (  # noqa: E402
     TokenMeter,
     UsageRecord,
 )
-from queryclear_agent_runtime.monitoring import Opportunity  # noqa: E402
+from queryclear_agent_runtime.monitoring import Opportunity, VisibilityCheck  # noqa: E402
 from queryclear_agent_runtime.publishing import AuditEvent  # noqa: E402
 
 
@@ -104,6 +115,71 @@ class SqlBudgetRepositoryTest(unittest.TestCase):
         self.assertEqual(count, 1)
 
 
+class SqlCmsCredentialRepositoryTest(unittest.TestCase):
+    def _engine_with_domain(self) -> sa.Engine:
+        engine = _empty_engine()
+        with engine.begin() as conn:
+            conn.execute(
+                sa.insert(organizations).values(
+                    id="org_1", token_budget_monthly=1000, token_used_current_period=0
+                )
+            )
+            conn.execute(
+                sa.insert(domains).values(
+                    id="domain_1",
+                    org_id="org_1",
+                    url="https://wp.test",
+                    cms_type="wordpress",
+                    status="onboarding",
+                )
+            )
+        return engine
+
+    def test_save_updates_domain_integration_and_encrypts_payload(self) -> None:
+        engine = self._engine_with_domain()
+        repo = SqlCmsCredentialRepository(engine, SecretCipher("test-secret-key-123"))
+        credentials = WordPressCredentials(
+            base_url="https://wp.test",
+            username="editor",
+            app_password="secret-password",
+        )
+
+        ref = repo.save_wordpress(credentials, org_id="org_1", domain_id="domain_1")
+        got = repo.get_wordpress(ref, org_id="org_1")
+
+        self.assertTrue(ref.startswith("cms_credentials:"))
+        self.assertEqual(got, credentials)
+        with engine.connect() as conn:
+            encrypted = conn.execute(
+                sa.select(cms_credentials.c.encrypted_payload)
+            ).scalar_one()
+            domain = conn.execute(
+                sa.select(domains.c.cms_credentials_ref, domains.c.status)
+            ).first()
+            integration = conn.execute(
+                sa.select(integrations.c.credentials_ref, integrations.c.status)
+            ).first()
+        self.assertNotIn("secret-password", encrypted)
+        self.assertEqual(domain[0], ref)
+        self.assertEqual(domain[1], "active")
+        self.assertEqual(integration[0], ref)
+        self.assertEqual(integration[1], "connected")
+
+    def test_get_is_tenant_scoped(self) -> None:
+        engine = self._engine_with_domain()
+        repo = SqlCmsCredentialRepository(engine, SecretCipher("test-secret-key-123"))
+        ref = repo.save_wordpress(
+            WordPressCredentials("https://wp.test", "editor", "secret-password"),
+            org_id="org_1",
+            domain_id="domain_1",
+        )
+
+        self.assertIsNone(repo.get_wordpress(ref, org_id="other_org"))
+        self.assertIsNone(
+            repo.get_wordpress_for_domain(org_id="other_org", domain_id="domain_1")
+        )
+
+
 def _empty_engine() -> sa.Engine:
     engine = sa.create_engine("sqlite://", future=True)
     metadata.create_all(engine)
@@ -170,6 +246,56 @@ class SqlOpportunityRepositoryTest(unittest.TestCase):
         self.assertEqual(count, 0)
 
 
+class SqlVisibilityCheckRepositoryTest(unittest.TestCase):
+    def test_save_all_expands_sample_rows(self) -> None:
+        engine = _empty_engine()
+        repo = SqlVisibilityCheckRepository(engine)
+
+        repo.save_all(
+            [
+                VisibilityCheck(
+                    prompt_id="vp-1",
+                    query="best ai seo tool",
+                    brand="QueryClear",
+                    samples=2,
+                    cited_count=1,
+                    raw_responses=("Try QueryClear.", "Use a competitor."),
+                    usage_record_ids=("usage-1", "usage-2"),
+                    engine="perplexity",
+                )
+            ],
+            org_id="org_1",
+            domain_id="domain_1",
+        )
+
+        with engine.connect() as conn:
+            rows = conn.execute(
+                sa.select(
+                    visibility_checks.c.engine,
+                    visibility_checks.c.prompt,
+                    visibility_checks.c.brand_cited,
+                    visibility_checks.c.raw_response_ref,
+                ).order_by(visibility_checks.c.raw_response_ref)
+            ).all()
+
+        self.assertEqual(len(rows), 2)
+        self.assertEqual({row.engine for row in rows}, {"perplexity"})
+        self.assertEqual(rows[0].prompt, "best ai seo tool")
+        self.assertEqual([row.brand_cited for row in rows], [True, False])
+        self.assertIn("usage-1", rows[0].raw_response_ref)
+
+    def test_save_all_empty_is_noop(self) -> None:
+        engine = _empty_engine()
+        SqlVisibilityCheckRepository(engine).save_all(
+            [], org_id="org_1", domain_id="domain_1"
+        )
+        with engine.connect() as conn:
+            count = conn.execute(
+                sa.select(sa.func.count()).select_from(visibility_checks)
+            ).scalar()
+        self.assertEqual(count, 0)
+
+
 class SqlAuditEventRepositoryTest(unittest.TestCase):
     def _event(self) -> AuditEvent:
         return AuditEvent(
@@ -212,6 +338,63 @@ class SqlVoiceProfileRepositoryTest(unittest.TestCase):
         repo = SqlVoiceProfileRepository(_empty_engine())
         repo.save(org_id="org_1", domain_id="domain_1", brand="Acme", guidelines="Crisp.")
         self.assertIsNone(repo.get(org_id="other_org", domain_id="domain_1"))
+
+
+class SqlCrawlSnapshotRepositoryTest(unittest.TestCase):
+    def _snapshot(self) -> SiteSnapshot:
+        return SiteSnapshot(
+            domain="https://example.com",
+            pages=(
+                Page(
+                    url="https://example.com/",
+                    title="Home",
+                    headings=("Hero",),
+                    text="Home copy",
+                    meta_description="Home meta",
+                    has_structured_data=True,
+                    links=("https://example.com/pricing",),
+                ),
+                Page(
+                    url="https://example.com/pricing",
+                    title="Pricing",
+                    headings=(),
+                    text="Pricing copy",
+                    links=(),
+                ),
+            ),
+        )
+
+    def test_save_and_latest_round_trip_pages(self) -> None:
+        engine = _empty_engine()
+        repo = SqlCrawlSnapshotRepository(engine)
+
+        snapshot_id = repo.save(self._snapshot(), org_id="org_1", domain_id="domain_1")
+        latest = repo.latest(org_id="org_1", domain_id="domain_1")
+
+        self.assertTrue(snapshot_id)
+        self.assertIsNotNone(latest)
+        self.assertEqual(latest.domain, "https://example.com")
+        self.assertEqual(len(latest.pages), 2)
+        self.assertEqual(latest.pages[0].title, "Home")
+        self.assertEqual(latest.pages[0].headings, ("Hero",))
+        self.assertEqual(latest.pages[0].meta_description, "Home meta")
+        self.assertTrue(latest.pages[0].has_structured_data)
+        self.assertEqual(latest.pages[0].links, ("https://example.com/pricing",))
+        with engine.connect() as conn:
+            snapshot_count = conn.execute(
+                sa.select(sa.func.count()).select_from(crawl_snapshots)
+            ).scalar()
+            page_count = conn.execute(
+                sa.select(sa.func.count()).select_from(crawl_pages)
+            ).scalar()
+        self.assertEqual(snapshot_count, 1)
+        self.assertEqual(page_count, 2)
+
+    def test_latest_is_tenant_scoped(self) -> None:
+        repo = SqlCrawlSnapshotRepository(_empty_engine())
+        repo.save(self._snapshot(), org_id="org_1", domain_id="domain_1")
+
+        self.assertIsNone(repo.latest(org_id="other_org", domain_id="domain_1"))
 
 
 if __name__ == "__main__":

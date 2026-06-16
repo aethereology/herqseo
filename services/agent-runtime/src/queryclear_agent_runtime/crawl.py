@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from typing import Protocol
+from urllib.parse import urldefrag, urljoin, urlparse
 
 
 @dataclass(frozen=True)
@@ -13,6 +15,7 @@ class Page:
     text: str
     meta_description: str = ""
     has_structured_data: bool = False
+    links: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -38,11 +41,16 @@ class _Extractor(HTMLParser):
         self.text_parts: list[str] = []
         self.meta_description: str = ""
         self.has_structured_data: bool = False
+        self.links: list[str] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         attr = {name.lower(): (value or "") for name, value in attrs}
         if "itemscope" in attr:
             self.has_structured_data = True
+        if tag == "a":
+            href = attr.get("href", "").strip()
+            if href:
+                self.links.append(href)
         if tag in ("script", "style"):
             if tag == "script" and "ld+json" in attr.get("type", "").lower():
                 self.has_structured_data = True
@@ -93,7 +101,19 @@ def parse_page(url: str, html: str, *, max_text_chars: int = 2000) -> Page:
         text=text,
         meta_description=extractor.meta_description,
         has_structured_data=extractor.has_structured_data,
+        links=tuple(dict.fromkeys(extractor.links)),
     )
+
+
+def _same_domain_url(base_url: str, href: str) -> str | None:
+    absolute = urldefrag(urljoin(base_url, href))[0]
+    parsed = urlparse(absolute)
+    base = urlparse(base_url)
+    if parsed.scheme not in {"http", "https"}:
+        return None
+    if parsed.netloc.lower() != base.netloc.lower():
+        return None
+    return absolute
 
 
 def crawl_site(
@@ -102,17 +122,33 @@ def crawl_site(
     seed_paths: tuple[str, ...] = ("/",),
     *,
     max_pages: int = 5,
+    follow_links: bool = True,
 ) -> SiteSnapshot:
-    """Fetch a bounded set of seed paths for one domain.
-
-    M0 deliberately fetches an explicit seed-path list rather than following
-    links; link-discovery crawling is P1-3 (domain ingestion).
-    """
+    """Fetch a bounded set of seed paths and same-domain discovered links."""
     base = domain.rstrip("/")
+    queued = deque(path if path.startswith("http") else base + path for path in seed_paths)
+    seen: set[str] = set()
     pages: list[Page] = []
-    for path in seed_paths[:max_pages]:
-        url = path if path.startswith("http") else base + path
-        pages.append(parse_page(url, fetcher.fetch(url)))
+    seed_urls = set(queued)
+    while queued and len(pages) < max_pages:
+        url = queued.popleft()
+        if url in seen:
+            continue
+        seen.add(url)
+        try:
+            html = fetcher.fetch(url)
+        except Exception:
+            if url in seed_urls:
+                raise
+            continue
+        page = parse_page(url, html)
+        pages.append(page)
+        if not follow_links:
+            continue
+        for href in page.links:
+            linked = _same_domain_url(url, href)
+            if linked is not None and linked not in seen:
+                queued.append(linked)
     return SiteSnapshot(domain=domain, pages=tuple(pages))
 
 

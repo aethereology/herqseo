@@ -146,6 +146,7 @@ model Organization {
   users                  User[]
   domains                Domain[]
   integrations           Integration[]
+  cmsCredentials         CmsCredential[]
   modelUsage             ModelUsage[]
 
   @@map("organizations")
@@ -179,6 +180,7 @@ model Domain {
   organization         Organization       @relation(fields: [orgId], references: [id])
   agentInstance        AgentInstance?
   crawlSnapshots       CrawlSnapshot[]
+  crawlPages           CrawlPage[]
   visibilityChecks     VisibilityCheck[]
   opportunities        Opportunity[]
   contentPieces        ContentPiece[]
@@ -187,6 +189,7 @@ model Domain {
   approvalEvents       ApprovalEvent[]
   auditEvents          AuditEvent[]
   brandVoiceProfile    BrandVoiceProfile?
+  cmsCredentials       CmsCredential[]
   modelUsage           ModelUsage[]
   liftMeasurements     LiftMeasurement[]
 
@@ -217,9 +220,33 @@ model CrawlSnapshot {
   pageCount   Int      @map("page_count")
   storageRef  String   @map("storage_ref")
   domain      Domain   @relation(fields: [domainId], references: [id])
+  pages       CrawlPage[]
 
   @@index([orgId, domainId, capturedAt])
   @@map("crawl_snapshots")
+}
+
+model CrawlPage {
+  id                String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId             String        @map("org_id") @db.Uuid
+  domainId          String        @map("domain_id") @db.Uuid
+  snapshotId        String        @map("snapshot_id") @db.Uuid
+  ordinal           Int
+  url               String
+  title             String
+  headings          Json          @default("[]")
+  text              String
+  metaDescription   String        @default("") @map("meta_description")
+  hasStructuredData Boolean       @default(false) @map("has_structured_data")
+  links             Json          @default("[]")
+  capturedAt        DateTime      @default(now()) @map("captured_at")
+  domain            Domain        @relation(fields: [domainId], references: [id])
+  snapshot          CrawlSnapshot @relation(fields: [snapshotId], references: [id])
+
+  @@unique([snapshotId, url])
+  @@index([orgId, domainId, snapshotId])
+  @@index([orgId, domainId, url])
+  @@map("crawl_pages")
 }
 
 model VisibilityCheck {
@@ -412,4 +439,20 @@ model Integration {
   @@unique([orgId, kind])
   @@index([orgId])
   @@map("integrations")
+}
+
+model CmsCredential {
+  id               String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId            String          @map("org_id") @db.Uuid
+  domainId         String          @map("domain_id") @db.Uuid
+  kind             IntegrationKind
+  encryptedPayload String          @map("encrypted_payload")
+  createdAt        DateTime        @default(now()) @map("created_at")
+  updatedAt        DateTime        @default(now()) @map("updated_at")
+  organization     Organization    @relation(fields: [orgId], references: [id])
+  domain           Domain          @relation(fields: [domainId], references: [id])
+
+  @@unique([orgId, domainId, kind])
+  @@index([orgId])
+  @@map("cms_credentials")
 }

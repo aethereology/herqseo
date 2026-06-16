@@ -1,22 +1,35 @@
 from __future__ import annotations
 
+import math
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
+from decimal import Decimal
+from typing import Protocol
 from uuid import uuid4
 
 from .crawl import SiteSnapshot
 from .metering import ModelRequest, TokenMeter
-from .providers import ModelProvider, run_model
+from .providers import ModelProvider, ModelRoutingPolicy, resolve_model_route, run_model
 
-# M0 monitoring runs against the single OpenAI path; treat it as the ChatGPT
-# engine probe. Multi-engine sampling is P1-4.
-_MONITORING_MODEL = "gpt-4.1-mini"
+_TASK_CLASSIFICATION = "classification"
+_TASK_MONITORING = "monitoring"
 _MAX_OUTPUT_TOKENS = 256
 
-# Prompt seeding uses a cheap model to turn crawled content into buyer-intent
-# queries (see derive_prompts for the deterministic fallback).
-_PROMPT_SEEDING_MODEL = "gpt-4.1-mini"
 _MAX_SEED_OUTPUT_TOKENS = 300
+
+AI_ENGINES: tuple[str, ...] = (
+    "chatgpt",
+    "google_ai_overviews",
+    "google_ai_mode",
+    "gemini",
+    "perplexity",
+    "claude",
+    "copilot",
+    "grok",
+)
+
+DEFAULT_MONITORING_ENGINES: tuple[str, ...] = AI_ENGINES[:5]
 
 
 @dataclass(frozen=True)
@@ -35,10 +48,34 @@ class VisibilityCheck:
     cited_count: int
     raw_responses: tuple[str, ...]
     usage_record_ids: tuple[str, ...]
+    engine: str = "chatgpt"
+    # Honesty contract: True only when the response came from a real, compliant
+    # query to the engine itself. False = a model standing in for the engine
+    # (an estimate, not a measurement). All current checks are proxy estimates.
+    measured: bool = False
 
     @property
     def citation_frequency(self) -> float:
         return self.cited_count / self.samples if self.samples else 0.0
+
+    @property
+    def citation_confidence_interval(self) -> tuple[float, float]:
+        """Wilson 95% interval for non-deterministic AI citation sampling."""
+        if self.samples <= 0:
+            return (0.0, 0.0)
+        z = 1.96
+        n = self.samples
+        p = self.citation_frequency
+        denominator = 1 + z**2 / n
+        centre = p + z**2 / (2 * n)
+        margin = z * math.sqrt((p * (1 - p) + z**2 / (4 * n)) / n)
+        low = (centre - margin) / denominator
+        high = (centre + margin) / denominator
+        return (max(0.0, low), min(1.0, high))
+
+    @property
+    def share_of_voice(self) -> Decimal:
+        return Decimal(str(round(self.citation_frequency, 4)))
 
 
 @dataclass(frozen=True)
@@ -50,6 +87,7 @@ class Opportunity:
     priority: int  # 1 = highest
     prompt_id: str | None
     status: str = "proposed"
+    source_engine: str | None = None
 
 
 @dataclass(frozen=True)
@@ -105,6 +143,19 @@ def _parse_queries(text: str, max_prompts: int) -> list[str]:
     return queries
 
 
+def parse_monitoring_engines(raw: str | None) -> tuple[str, ...]:
+    if not raw:
+        return DEFAULT_MONITORING_ENGINES
+    engines = tuple(engine.strip() for engine in raw.split(",") if engine.strip())
+    unknown = [engine for engine in engines if engine not in AI_ENGINES]
+    if unknown:
+        raise ValueError(
+            f"Unknown monitoring engine(s): {', '.join(unknown)}. "
+            f"Allowed: {', '.join(AI_ENGINES)}"
+        )
+    return engines or DEFAULT_MONITORING_ENGINES
+
+
 def generate_prompts(
     meter: TokenMeter,
     provider: ModelProvider,
@@ -114,7 +165,8 @@ def generate_prompts(
     org_id: str,
     domain_id: str,
     max_prompts: int = 5,
-    model: str = _PROMPT_SEEDING_MODEL,
+    routing_policy: ModelRoutingPolicy | None = None,
+    model: str | None = None,
 ) -> list[VisibilityPrompt]:
     """Seed visibility prompts as natural buyer-intent queries generated from the
     crawled site (metered). Falls back to `derive_prompts` if there is no site
@@ -131,12 +183,13 @@ def generate_prompts(
         "no quotes.\n\n"
         f"Site content:\n{context}"
     )
+    route = resolve_model_route(_TASK_CLASSIFICATION, routing_policy, model=model)
     request = ModelRequest(
         org_id=org_id,
         domain_id=domain_id,
-        task_class="classification",
-        provider="openai",
-        model=model,
+        task_class=_TASK_CLASSIFICATION,
+        provider=route.provider,
+        model=route.model,
         estimated_input_tokens=max(64, len(prompt) // 4),
         max_output_tokens=_MAX_SEED_OUTPUT_TOKENS,
     )
@@ -150,6 +203,106 @@ def generate_prompts(
     ]
 
 
+@dataclass(frozen=True)
+class EngineProbe:
+    """One engine response for one query, with a trace back to its cost."""
+
+    content: str
+    usage_record_id: str
+
+
+class EngineAdapter(Protocol):
+    """How we obtain an answer-engine response for a query.
+
+    This is the seam real per-engine adapters drop into. `measured` is the
+    honesty contract (mirrored onto `VisibilityCheck.measured`): True only when
+    the response is a real, compliant query to the engine itself; False when a
+    model is standing in for the engine (an estimate, not a measurement).
+    """
+
+    engine: str
+    measured: bool
+
+    def probe(self, query: str) -> EngineProbe: ...
+
+
+class ModelProxyAdapter:
+    """A routed model role-playing an answer engine.
+
+    This is what every engine uses until a real, compliant adapter exists for
+    it. Asking one model to answer "as Perplexity would" is an honest *estimate*
+    of the answer space — it is NOT a measurement of that engine, so
+    `measured` is always False and the product must label it as such.
+    """
+
+    measured = False
+
+    def __init__(
+        self,
+        meter: TokenMeter,
+        provider: ModelProvider,
+        *,
+        org_id: str,
+        domain_id: str,
+        engine: str,
+        routing_policy: ModelRoutingPolicy | None = None,
+        model: str | None = None,
+    ) -> None:
+        if engine not in AI_ENGINES:
+            raise ValueError(f"Unknown monitoring engine {engine!r}")
+        self.engine = engine
+        self._meter = meter
+        self._provider = provider
+        self._org_id = org_id
+        self._domain_id = domain_id
+        self._route = resolve_model_route(_TASK_MONITORING, routing_policy, model=model)
+
+    def probe(self, query: str) -> EngineProbe:
+        probe = (
+            f"Engine: {self.engine}\n"
+            f"User query: {query}\n\n"
+            "Answer the user query as that AI answer surface would. Include "
+            "the brands or sources you would cite."
+        )
+        request = ModelRequest(
+            org_id=self._org_id,
+            domain_id=self._domain_id,
+            task_class=_TASK_MONITORING,
+            provider=self._route.provider,
+            model=self._route.model,
+            estimated_input_tokens=max(32, len(probe) // 4),
+            max_output_tokens=_MAX_OUTPUT_TOKENS,
+        )
+        call = run_model(self._meter, self._provider, request, probe)
+        return EngineProbe(content=call.response.content, usage_record_id=call.budget.usage.id)
+
+
+def build_proxy_adapters(
+    meter: TokenMeter,
+    provider: ModelProvider,
+    *,
+    org_id: str,
+    domain_id: str,
+    engines: Sequence[str] = DEFAULT_MONITORING_ENGINES,
+    routing_policy: ModelRoutingPolicy | None = None,
+    model: str | None = None,
+) -> list[EngineAdapter]:
+    """One `ModelProxyAdapter` per engine label — the default until real
+    adapters are wired."""
+    return [
+        ModelProxyAdapter(
+            meter,
+            provider,
+            org_id=org_id,
+            domain_id=domain_id,
+            engine=engine,
+            routing_policy=routing_policy,
+            model=model,
+        )
+        for engine in engines
+    ]
+
+
 def run_visibility_checks(
     meter: TokenMeter,
     provider: ModelProvider,
@@ -158,43 +311,54 @@ def run_visibility_checks(
     prompts: list[VisibilityPrompt],
     *,
     samples: int = 3,
-    model: str = _MONITORING_MODEL,
+    engines: Sequence[str] = DEFAULT_MONITORING_ENGINES,
+    adapters: Sequence[EngineAdapter] | None = None,
+    routing_policy: ModelRoutingPolicy | None = None,
+    model: str | None = None,
 ) -> list[VisibilityCheck]:
     """Probe brand citation for each prompt, sampling repeatedly for
-    non-determinism. Every sample is metered."""
-    checks: list[VisibilityCheck] = []
-    for prompt in prompts:
-        request = ModelRequest(
+    non-determinism. Every sample is metered.
+
+    Engines are queried through `EngineAdapter`s. When `adapters` is not given,
+    one `ModelProxyAdapter` is built per `engines` label — honest estimates that
+    carry `measured=False`. Pass real adapters to get true measurements.
+    """
+    if adapters is None:
+        adapters = build_proxy_adapters(
+            meter,
+            provider,
             org_id=org_id,
             domain_id=domain_id,
-            task_class="monitoring",
-            provider="openai",
+            engines=engines,
+            routing_policy=routing_policy,
             model=model,
-            estimated_input_tokens=max(16, len(prompt.query) // 4),
-            max_output_tokens=_MAX_OUTPUT_TOKENS,
         )
-        cited = 0
-        raw: list[str] = []
-        usage_ids: list[str] = []
-        needle = prompt.brand.lower()
-        for _ in range(samples):
-            call = run_model(meter, provider, request, prompt.query)
-            content = call.response.content
-            raw.append(content)
-            usage_ids.append(call.budget.usage.id)
-            if needle in content.lower():
-                cited += 1
-        checks.append(
-            VisibilityCheck(
-                prompt_id=prompt.id,
-                query=prompt.query,
-                brand=prompt.brand,
-                samples=samples,
-                cited_count=cited,
-                raw_responses=tuple(raw),
-                usage_record_ids=tuple(usage_ids),
+    checks: list[VisibilityCheck] = []
+    for adapter in adapters:
+        for prompt in prompts:
+            cited = 0
+            raw: list[str] = []
+            usage_ids: list[str] = []
+            needle = prompt.brand.lower()
+            for _ in range(samples):
+                probe = adapter.probe(prompt.query)
+                raw.append(probe.content)
+                usage_ids.append(probe.usage_record_id)
+                if needle in probe.content.lower():
+                    cited += 1
+            checks.append(
+                VisibilityCheck(
+                    prompt_id=prompt.id,
+                    query=prompt.query,
+                    brand=prompt.brand,
+                    samples=samples,
+                    cited_count=cited,
+                    raw_responses=tuple(raw),
+                    usage_record_ids=tuple(usage_ids),
+                    engine=adapter.engine,
+                    measured=adapter.measured,
+                )
             )
-        )
     return checks
 
 
@@ -213,16 +377,18 @@ def generate_opportunities(
             Opportunity(
                 id=str(uuid4()),
                 opportunity_type="content",
-                title=f"Improve AI visibility for: {check.query}",
+                title=f"Improve {check.engine} visibility for: {check.query}",
                 rationale=(
-                    f"Brand '{check.brand}' cited in {check.cited_count}/{check.samples} "
-                    f"samples ({freq:.0%}); below the {threshold:.0%} target."
+                    f"On {check.engine}, brand '{check.brand}' cited in "
+                    f"{check.cited_count}/{check.samples} samples ({freq:.0%}); "
+                    f"below the {threshold:.0%} target."
                 ),
                 priority=priority,
                 prompt_id=check.prompt_id,
+                source_engine=check.engine,
             )
         )
-    opportunities.sort(key=lambda o: (o.priority, o.prompt_id or ""))
+    opportunities.sort(key=lambda o: (o.priority, o.prompt_id or "", o.source_engine or ""))
     return opportunities
 
 
@@ -235,7 +401,9 @@ def run_monitoring(
     org_id: str,
     domain_id: str,
     samples: int = 3,
-    model: str = _MONITORING_MODEL,
+    engines: Sequence[str] = DEFAULT_MONITORING_ENGINES,
+    routing_policy: ModelRoutingPolicy | None = None,
+    model: str | None = None,
     max_prompts: int = 5,
     threshold: float = 0.5,
 ) -> MonitoringResult:
@@ -244,9 +412,12 @@ def run_monitoring(
     prompts = generate_prompts(
         meter, provider, snapshot, brand,
         org_id=org_id, domain_id=domain_id, max_prompts=max_prompts,
+        routing_policy=routing_policy,
     )
     checks = run_visibility_checks(
-        meter, provider, org_id, domain_id, prompts, samples=samples, model=model
+        meter, provider, org_id, domain_id, prompts, samples=samples,
+        engines=engines,
+        routing_policy=routing_policy, model=model,
     )
     opportunities = generate_opportunities(checks, threshold=threshold)
     usage_ids = tuple(uid for check in checks for uid in check.usage_record_ids)

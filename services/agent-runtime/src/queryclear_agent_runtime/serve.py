@@ -37,7 +37,11 @@ class _DemoProvider:
     returns a templated answer-first draft."""
 
     def complete(self, request: ModelRequest, prompt: str, *, system: str | None = None) -> ModelResponse:
-        if request.task_class == "monitoring":
+        if request.task_class == "classification" and "style guide" in prompt.lower():
+            content = "Plain, direct, practical, and specific to B2B operators."
+        elif request.task_class == "classification":
+            content = "best invoice automation for saas\nhow to reduce finance ops manual work"
+        elif request.task_class == "monitoring":
             content = "For that, I'd point you to a few established competitors."
         else:
             first_line = prompt.splitlines()[0] if prompt else "your topic"
@@ -84,15 +88,23 @@ def build_service() -> LoopService:
         from .db import (
             SqlAuditEventRepository,
             SqlBudgetRepository,
+            SqlCmsCredentialRepository,
+            SqlCrawlSnapshotRepository,
             SqlDraftRepository,
             SqlOpportunityRepository,
+            SqlVisibilityCheckRepository,
             SqlVoiceProfileRepository,
             create_engine_from_url,
         )
+        from .credentials import SecretCipher
 
         engine = create_engine_from_url(database_url)
+        cipher = SecretCipher.from_env(os.environ)
         meter = TokenMeter(SqlBudgetRepository(engine))
         repos = {
+            "cms_credentials": SqlCmsCredentialRepository(engine, cipher),
+            "crawl_snapshots": SqlCrawlSnapshotRepository(engine),
+            "visibility_checks": SqlVisibilityCheckRepository(engine),
             "drafts": SqlDraftRepository(engine),
             "opportunities": SqlOpportunityRepository(engine),
             "audit_events": SqlAuditEventRepository(engine),
@@ -101,15 +113,25 @@ def build_service() -> LoopService:
     else:
         meter = TokenMeter(InMemoryBudgetRepository({org_id: TokenBudget(org_id, budget)}))
 
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if api_key:
+    from .monitoring import parse_monitoring_engines
+    from .providers import ModelRoutingPolicy
+
+    routing_policy = ModelRoutingPolicy.from_env(os.environ)
+    monitoring_engines = parse_monitoring_engines(
+        os.environ.get("QUERYCLEAR_MONITORING_ENGINES")
+    )
+
+    openai_key = os.environ.get("OPENAI_API_KEY")
+    anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
+    if openai_key or anthropic_key:
         from .crawl import HttpPageFetcher
         from .providers import OpenAIProvider, RoutingProvider
 
-        # Model-agnostic router: OpenAI is always available; register Anthropic
-        # too when its key is set, so tasks can be routed per provider.
-        backends: dict[str, object] = {"openai": OpenAIProvider(api_key=api_key)}
-        anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
+        # Register whatever vendor keys are configured; the routing policy
+        # decides which provider/model each task_class requests.
+        backends: dict[str, object] = {}
+        if openai_key:
+            backends["openai"] = OpenAIProvider(api_key=openai_key)
         if anthropic_key:
             from .providers import AnthropicProvider
 
@@ -141,6 +163,8 @@ def build_service() -> LoopService:
         fetcher=fetcher,  # type: ignore[arg-type]
         voice=voice,
         publisher=publisher,  # type: ignore[arg-type]
+        routing_policy=routing_policy,
+        monitoring_engines=monitoring_engines,
         **repos,  # type: ignore[arg-type]  # Sql repos when DATABASE_URL set; else defaults
     )
 

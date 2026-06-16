@@ -72,7 +72,7 @@ class OperatorLoopEndToEndTest(unittest.TestCase):
             meter, provider, snapshot, brand="QueryClear",
             org_id="org_1", domain_id="domain_1", samples=2,
         )
-        self.assertEqual(len(monitoring.opportunities), 1)
+        self.assertEqual(len(monitoring.opportunities), 5)
         top = monitoring.opportunities[0]
 
         # 3. generate ONE brand-voice draft (metered)
@@ -102,8 +102,8 @@ class OperatorLoopEndToEndTest(unittest.TestCase):
         self.assertEqual(len(audit), 1)
         self.assertEqual(audit[0].metadata["usage_record_id"], piece.usage_record_id)
 
-        # every model call was metered: 1 prompt-seeding + 2 monitoring + 1 content
-        self.assertEqual(len(repo.records), 4)
+        # every model call was metered: 1 prompt-seeding + (5 engines x 2 samples) + 1 content
+        self.assertEqual(len(repo.records), 12)
         self.assertGreater(repo.get_budget("org_1").used_tokens, 0)
 
 

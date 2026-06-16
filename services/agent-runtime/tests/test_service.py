@@ -11,12 +11,14 @@ from queryclear_agent_runtime import (  # noqa: E402
     ApprovalRequired,
     BrandVoice,
     InMemoryBudgetRepository,
+    InMemoryCmsCredentialRepository,
     LoopError,
     LoopService,
     ModelResponse,
     PublishResult,
     TokenBudget,
     TokenMeter,
+    WordPressCredentials,
 )
 
 _HOME = "<html><head><title>Invoice Automation for SaaS</title></head><body><p>x</p></body></html>"
@@ -73,13 +75,17 @@ class LoopServiceTest(unittest.TestCase):
         service = _service(cite=False)
         summary = _run(service)
 
-        self.assertEqual(len(summary.opportunities), 1)
+        self.assertEqual(len(summary.opportunities), 5)
         self.assertIsNotNone(summary.draft)
         self.assertEqual(summary.draft.status, "pending_approval")
         # draft is retrievable by id
         self.assertEqual(
             service.get_draft(summary.draft.id, org_id="org_1").id, summary.draft.id
         )
+        ingested = service.crawl_snapshots.latest(org_id="org_1", domain_id="domain_1")
+        self.assertIsNotNone(ingested)
+        self.assertEqual(ingested.pages[0].title, "Invoice Automation for SaaS")
+        self.assertEqual(len(service.visibility_checks.saved), 5)
 
     def test_run_without_gap_makes_no_draft(self) -> None:
         summary = _run(_service(cite=True))
@@ -109,6 +115,42 @@ class LoopServiceTest(unittest.TestCase):
         self.assertEqual(
             service.get_draft(summary.draft.id, org_id="org_1").status, "published"
         )
+
+    def test_publish_uses_saved_wordpress_credentials_when_present(self) -> None:
+        calls: list[dict[str, str]] = []
+
+        class _FactoryPublisher(_FakePublisher):
+            def __init__(self, *, base_url: str, username: str, app_password: str) -> None:
+                super().__init__()
+                calls.append({
+                    "base_url": base_url,
+                    "username": username,
+                    "app_password": app_password,
+                })
+
+        credentials = InMemoryCmsCredentialRepository()
+        credentials.save_wordpress(
+            WordPressCredentials(
+                base_url="https://wp.test",
+                username="editor",
+                app_password="secret",
+            ),
+            org_id="org_1",
+            domain_id="domain_1",
+        )
+        service = _service(cite=False)
+        service.cms_credentials = credentials
+        service.publisher_factory = _FactoryPublisher
+        summary = _run(service)
+        service.review(
+            summary.draft.id, org_id="org_1", approved=True, reviewer="founder@x.com"
+        )
+
+        service.publish(summary.draft.id, org_id="org_1", actor="founder@x.com")
+
+        self.assertEqual(calls[0]["base_url"], "https://wp.test")
+        self.assertEqual(calls[0]["username"], "editor")
+        self.assertEqual(calls[0]["app_password"], "secret")
 
     def test_unknown_draft_raises(self) -> None:
         with self.assertRaises(LoopError):

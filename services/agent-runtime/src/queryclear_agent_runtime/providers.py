@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Protocol
@@ -9,6 +10,12 @@ from .metering import BudgetState, ModelRequest, ModelResponse, TokenMeter
 
 class UnsupportedModel(RuntimeError):
     pass
+
+
+@dataclass(frozen=True)
+class ModelRoute:
+    provider: str
+    model: str
 
 
 @dataclass(frozen=True)
@@ -37,6 +44,72 @@ ANTHROPIC_PRICING: dict[str, ModelPricing] = {
     "claude-sonnet-4-6": ModelPricing(Decimal("3.00"), Decimal("15.00")),
     "claude-haiku-4-5-20251001": ModelPricing(Decimal("1.00"), Decimal("5.00")),
 }
+
+DEFAULT_MODEL_ROUTES: dict[str, ModelRoute] = {
+    "classification": ModelRoute(provider="openai", model="gpt-4.1-mini"),
+    "monitoring": ModelRoute(provider="openai", model="gpt-4.1-mini"),
+    "content_generation": ModelRoute(provider="openai", model="gpt-4.1"),
+}
+
+
+class ModelRoutingPolicy:
+    """Per-task provider/model selection.
+
+    Call sites build a ``ModelRequest`` from task class + policy route, so the
+    product can move work between vendors without editing content or monitoring
+    logic. Defaults preserve the original OpenAI-only behavior.
+    """
+
+    def __init__(self, routes: Mapping[str, ModelRoute] | None = None) -> None:
+        merged = dict(DEFAULT_MODEL_ROUTES)
+        if routes:
+            merged.update(routes)
+        self._routes = merged
+
+    @classmethod
+    def from_env(cls, env: Mapping[str, str]) -> ModelRoutingPolicy:
+        routes: dict[str, ModelRoute] = {}
+        for task_class in DEFAULT_MODEL_ROUTES:
+            key = f"QUERYCLEAR_MODEL_ROUTE_{task_class.upper()}"
+            raw = env.get(key)
+            if not raw:
+                continue
+            routes[task_class] = cls._parse_env_route(key, raw)
+        return cls(routes)
+
+    @staticmethod
+    def _parse_env_route(key: str, raw: str) -> ModelRoute:
+        provider, separator, model = raw.partition(":")
+        if not separator or not provider.strip() or not model.strip():
+            raise ValueError(f"{key} must use provider:model format")
+        return ModelRoute(provider=provider.strip(), model=model.strip())
+
+    @property
+    def routes(self) -> dict[str, ModelRoute]:
+        return dict(self._routes)
+
+    def route_for(self, task_class: str) -> ModelRoute:
+        try:
+            return self._routes[task_class]
+        except KeyError as exc:
+            raise UnsupportedModel(
+                f"No model route configured for task class {task_class!r}"
+            ) from exc
+
+
+DEFAULT_MODEL_ROUTING_POLICY = ModelRoutingPolicy()
+
+
+def resolve_model_route(
+    task_class: str,
+    routing_policy: ModelRoutingPolicy | None = None,
+    *,
+    model: str | None = None,
+) -> ModelRoute:
+    route = (routing_policy or DEFAULT_MODEL_ROUTING_POLICY).route_for(task_class)
+    if model is None:
+        return route
+    return ModelRoute(provider=route.provider, model=model)
 
 
 class ModelProvider(Protocol):

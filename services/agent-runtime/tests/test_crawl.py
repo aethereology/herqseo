@@ -59,6 +59,13 @@ class ParsePageTest(unittest.TestCase):
         self.assertEqual(page.meta_description, "Automate AP invoices for finance teams.")
         self.assertTrue(page.has_structured_data)
 
+    def test_extracts_links(self) -> None:
+        page = parse_page(
+            "https://example.com/",
+            '<a href="/pricing">Pricing</a><a href="https://other.test/">Offsite</a>',
+        )
+        self.assertEqual(page.links, ("/pricing", "https://other.test/"))
+
     def test_missing_meta_and_schema_default_empty(self) -> None:
         page = parse_page("https://example.com/", "<title>Bare</title><h1>Hi</h1>")
         self.assertEqual(page.meta_description, "")
@@ -95,6 +102,50 @@ class CrawlSiteTest(unittest.TestCase):
     def test_respects_max_pages(self) -> None:
         fetcher = _FakeFetcher({"https://example.com/": _HTML})
         snapshot = crawl_site(fetcher, "https://example.com/", ("/", "/a", "/b"), max_pages=1)
+        self.assertEqual(len(snapshot.pages), 1)
+        self.assertEqual(fetcher.fetched, ["https://example.com/"])
+
+    def test_discovers_same_domain_links(self) -> None:
+        fetcher = _FakeFetcher(
+            {
+                "https://example.com/": (
+                    '<title>Home</title><a href="/pricing">Pricing</a>'
+                    '<a href="https://other.test/">Other</a>'
+                ),
+                "https://example.com/pricing": '<title>Pricing</title><a href="/contact">Contact</a>',
+                "https://example.com/contact": "<title>Contact</title>",
+            }
+        )
+
+        snapshot = crawl_site(fetcher, "https://example.com", ("/",), max_pages=3)
+
+        self.assertEqual(
+            [page.url for page in snapshot.pages],
+            ["https://example.com/", "https://example.com/pricing", "https://example.com/contact"],
+        )
+
+    def test_skips_broken_discovered_links(self) -> None:
+        fetcher = _FakeFetcher(
+            {
+                "https://example.com/": '<title>Home</title><a href="/missing">Missing</a>',
+            }
+        )
+
+        snapshot = crawl_site(fetcher, "https://example.com", ("/",), max_pages=2)
+
+        self.assertEqual(len(snapshot.pages), 1)
+        self.assertEqual(fetcher.fetched, ["https://example.com/", "https://example.com/missing"])
+
+    def test_can_disable_link_discovery(self) -> None:
+        fetcher = _FakeFetcher(
+            {
+                "https://example.com/": '<title>Home</title><a href="/pricing">Pricing</a>',
+                "https://example.com/pricing": "<title>Pricing</title>",
+            }
+        )
+
+        snapshot = crawl_site(fetcher, "https://example.com", ("/",), follow_links=False)
+
         self.assertEqual(len(snapshot.pages), 1)
         self.assertEqual(fetcher.fetched, ["https://example.com/"])
 

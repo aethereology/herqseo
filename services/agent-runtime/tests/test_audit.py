@@ -62,10 +62,10 @@ class AuditTest(unittest.TestCase):
         self.assertIn("duplicated_title", codes)
         self.assertIn("thin_content", codes)
         # invisible-query check ran
-        self.assertEqual(len(report.checks), 1)
+        self.assertEqual(len(report.checks), 5)
         self.assertEqual(report.checks[0].cited_count, 0)
         # a sample draft was generated for the gap
-        self.assertEqual(len(report.opportunities), 1)
+        self.assertEqual(len(report.opportunities), 5)
         self.assertIsNotNone(report.sample_draft)
         self.assertEqual(report.sample_draft.status, "pending_approval")
 

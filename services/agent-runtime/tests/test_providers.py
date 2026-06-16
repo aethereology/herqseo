@@ -13,11 +13,14 @@ from queryclear_agent_runtime import (  # noqa: E402
     InMemoryBudgetRepository,
     ModelPricing,
     ModelRequest,
+    ModelRoute,
     OpenAIProvider,
+    ModelRoutingPolicy,
     RoutingProvider,
     TokenBudget,
     TokenMeter,
     UnsupportedModel,
+    resolve_model_route,
     run_model,
 )
 
@@ -78,6 +81,58 @@ class ModelPricingTest(unittest.TestCase):
         pricing = ModelPricing(Decimal("2.00"), Decimal("8.00"))
         # 1,000,000 input @ $2 + 500,000 output @ $8 = $2.00 + $4.00
         self.assertEqual(pricing.cost(1_000_000, 500_000), Decimal("6.00"))
+
+
+class ModelRoutingPolicyTest(unittest.TestCase):
+    def test_default_routes_preserve_openai_path(self) -> None:
+        policy = ModelRoutingPolicy()
+
+        self.assertEqual(
+            policy.route_for("monitoring"),
+            ModelRoute(provider="openai", model="gpt-4.1-mini"),
+        )
+        self.assertEqual(
+            policy.route_for("content_generation"),
+            ModelRoute(provider="openai", model="gpt-4.1"),
+        )
+
+    def test_overrides_task_route(self) -> None:
+        policy = ModelRoutingPolicy(
+            {"monitoring": ModelRoute(provider="anthropic", model="claude-haiku-4-5-20251001")}
+        )
+
+        self.assertEqual(
+            policy.route_for("monitoring"),
+            ModelRoute(provider="anthropic", model="claude-haiku-4-5-20251001"),
+        )
+        self.assertEqual(policy.route_for("classification").provider, "openai")
+
+    def test_from_env_parses_provider_model_pairs(self) -> None:
+        policy = ModelRoutingPolicy.from_env(
+            {"QUERYCLEAR_MODEL_ROUTE_CONTENT_GENERATION": "anthropic:claude-sonnet-4-6"}
+        )
+
+        self.assertEqual(
+            policy.route_for("content_generation"),
+            ModelRoute(provider="anthropic", model="claude-sonnet-4-6"),
+        )
+
+    def test_from_env_rejects_invalid_route(self) -> None:
+        with self.assertRaises(ValueError):
+            ModelRoutingPolicy.from_env({"QUERYCLEAR_MODEL_ROUTE_MONITORING": "openai"})
+
+    def test_unknown_task_raises(self) -> None:
+        with self.assertRaises(UnsupportedModel):
+            ModelRoutingPolicy().route_for("image_generation")
+
+    def test_model_override_keeps_policy_provider(self) -> None:
+        policy = ModelRoutingPolicy(
+            {"monitoring": ModelRoute(provider="anthropic", model="claude-haiku-4-5-20251001")}
+        )
+
+        route = resolve_model_route("monitoring", policy, model="claude-sonnet-4-6")
+
+        self.assertEqual(route, ModelRoute(provider="anthropic", model="claude-sonnet-4-6"))
 
 
 class OpenAIProviderTest(unittest.TestCase):

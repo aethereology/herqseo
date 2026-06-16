@@ -5,10 +5,12 @@ import type {
   PublishResponse,
   RunResponse,
   RuntimeDraft,
-  RuntimeOpportunity
+  RuntimeOpportunity,
+  WordPressConnectResponse
 } from "../lib/agent-runtime";
 
 type Phase = "idle" | "running" | "ready";
+type ConnectorStatus = "idle" | "checking" | "ok" | "failed";
 
 async function post<T>(url: string, body?: unknown): Promise<T> {
   const response = await fetch(url, {
@@ -56,6 +58,11 @@ export function OperatorConsole({
   const [run, setRun] = useState<RunResponse | null>(null);
   const [draft, setDraft] = useState<RuntimeDraft | null>(null);
   const [published, setPublished] = useState<PublishResponse | null>(null);
+  const [wpBaseUrl, setWpBaseUrl] = useState(domainUrl);
+  const [wpUsername, setWpUsername] = useState("");
+  const [wpAppPassword, setWpAppPassword] = useState("");
+  const [wpStatus, setWpStatus] = useState<ConnectorStatus>("idle");
+  const [wpMessage, setWpMessage] = useState<string | null>(null);
 
   async function handleRun() {
     setPhase("running");
@@ -105,6 +112,27 @@ export function OperatorConsole({
     }
   }
 
+  async function handleWordPressPreflight(e: React.FormEvent) {
+    e.preventDefault();
+    setWpStatus("checking");
+    setWpMessage(null);
+    try {
+      const result = await post<WordPressConnectResponse>(
+        "/api/integrations/wordpress/connect",
+        {
+          baseUrl: wpBaseUrl,
+          username: wpUsername,
+          appPassword: wpAppPassword
+        }
+      );
+      setWpStatus("ok");
+      setWpMessage(result.message);
+    } catch (err) {
+      setWpStatus("failed");
+      setWpMessage(err instanceof Error ? err.message : "WordPress check failed");
+    }
+  }
+
   return (
     <div className="rounded border border-line bg-white">
       <div className="flex flex-col gap-4 border-b border-line px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
@@ -125,6 +153,71 @@ export function OperatorConsole({
           {phase === "running" ? "Running loop…" : "Run operator loop"}
         </button>
       </div>
+
+      <form
+        onSubmit={handleWordPressPreflight}
+        className="border-b border-line bg-paper/45 px-5 py-4"
+      >
+        <div className="grid gap-3 lg:grid-cols-[1.3fr_0.9fr_0.9fr_auto] lg:items-end">
+          <label className="block">
+            <span className="text-xs font-medium uppercase tracking-wide text-moss">
+              WordPress URL
+            </span>
+            <input
+              value={wpBaseUrl}
+              onChange={(e) => setWpBaseUrl(e.target.value)}
+              required
+              placeholder="https://example.com"
+              className="mt-1 w-full rounded border border-line bg-white px-3 py-2 text-sm text-ink outline-none focus:border-moss"
+            />
+          </label>
+          <label className="block">
+            <span className="text-xs font-medium uppercase tracking-wide text-moss">
+              Username
+            </span>
+            <input
+              value={wpUsername}
+              onChange={(e) => setWpUsername(e.target.value)}
+              required
+              autoComplete="username"
+              className="mt-1 w-full rounded border border-line bg-white px-3 py-2 text-sm text-ink outline-none focus:border-moss"
+            />
+          </label>
+          <label className="block">
+            <span className="text-xs font-medium uppercase tracking-wide text-moss">
+              App password
+            </span>
+            <input
+              value={wpAppPassword}
+              onChange={(e) => setWpAppPassword(e.target.value)}
+              required
+              type="password"
+              autoComplete="current-password"
+              className="mt-1 w-full rounded border border-line bg-white px-3 py-2 text-sm text-ink outline-none focus:border-moss"
+            />
+          </label>
+          <button
+            type="submit"
+            disabled={wpStatus === "checking"}
+            aria-busy={wpStatus === "checking"}
+            className="h-[38px] rounded border border-ink/20 bg-white px-4 text-sm font-semibold text-ink transition hover:bg-paper disabled:opacity-60"
+          >
+            {wpStatus === "checking" ? "Connecting…" : "Connect WordPress"}
+          </button>
+        </div>
+        {wpMessage ? (
+          <p
+            className={`mt-3 text-sm ${
+              wpStatus === "ok" ? "text-moss" : "text-ink"
+            }`}
+          >
+            <span className="font-semibold">
+              {wpStatus === "ok" ? "Connected:" : "Fix needed:"}
+            </span>{" "}
+            {wpMessage}
+          </p>
+        ) : null}
+      </form>
 
       {error ? (
         <div className="border-b border-line bg-paper px-5 py-3 text-sm text-ink">

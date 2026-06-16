@@ -108,6 +108,60 @@ class PostgresPersistenceTest(unittest.TestCase):
         self.assertEqual(repo.get(org_id=ORG_A, domain_id=DOM_A), "Wry.")
         self.assertIsNone(repo.get(org_id=ORG_B, domain_id=DOM_A))
 
+    def test_crawl_snapshot_pages_round_trip(self) -> None:
+        from queryclear_agent_runtime.crawl import Page, SiteSnapshot
+        from queryclear_agent_runtime.db import SqlCrawlSnapshotRepository
+
+        repo = SqlCrawlSnapshotRepository(self.engine)
+        repo.save(
+            SiteSnapshot(
+                domain="https://a.test",
+                pages=(
+                    Page(
+                        url="https://a.test/",
+                        title="Home",
+                        headings=("Hero",),
+                        text="Home copy",
+                        meta_description="Meta",
+                        has_structured_data=True,
+                        links=("https://a.test/pricing",),
+                    ),
+                ),
+            ),
+            org_id=ORG_A,
+            domain_id=DOM_A,
+        )
+
+        latest = repo.latest(org_id=ORG_A, domain_id=DOM_A)
+        self.assertIsNotNone(latest)
+        self.assertEqual(latest.domain, "https://a.test")
+        self.assertEqual(latest.pages[0].headings, ("Hero",))
+        self.assertTrue(latest.pages[0].has_structured_data)
+        self.assertEqual(latest.pages[0].links, ("https://a.test/pricing",))
+        self.assertIsNone(repo.latest(org_id=ORG_B, domain_id=DOM_A))
+
+    def test_cms_credentials_round_trip_and_tenant_scope(self) -> None:
+        from queryclear_agent_runtime.credentials import SecretCipher, WordPressCredentials
+        from queryclear_agent_runtime.db import SqlCmsCredentialRepository
+
+        repo = SqlCmsCredentialRepository(
+            self.engine, SecretCipher("test-secret-key-123")
+        )
+        credentials = WordPressCredentials(
+            base_url="https://wp.test",
+            username="editor",
+            app_password="secret-password",
+        )
+
+        ref = repo.save_wordpress(credentials, org_id=ORG_A, domain_id=DOM_A)
+
+        self.assertEqual(repo.get_wordpress(ref, org_id=ORG_A), credentials)
+        self.assertEqual(
+            repo.get_wordpress_for_domain(org_id=ORG_A, domain_id=DOM_A),
+            credentials,
+        )
+        self.assertIsNone(repo.get_wordpress(ref, org_id=ORG_B))
+
     def test_rls_isolates_tenants(self) -> None:
         import sqlalchemy as sa
 
