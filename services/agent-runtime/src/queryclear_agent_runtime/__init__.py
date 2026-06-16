@@ -51,7 +51,9 @@ from .repositories import (
     InMemoryAuditEventRepository,
     InMemoryDraftRepository,
     InMemoryOpportunityRepository,
+    InMemoryVoiceProfileRepository,
     OpportunityRepository,
+    VoiceProfileRepository,
 )
 from .service import (
     LoopError,
@@ -106,9 +108,11 @@ __all__ = [
     "InMemoryBudgetRepository",
     "InMemoryDraftRepository",
     "InMemoryOpportunityRepository",
+    "InMemoryVoiceProfileRepository",
     "LoopError",
     "LoopService",
     "OpportunityRepository",
+    "VoiceProfileRepository",
     "ModelCall",
     "ModelPricing",
     "ModelProvider",

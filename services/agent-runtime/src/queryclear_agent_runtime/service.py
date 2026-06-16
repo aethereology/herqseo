@@ -21,7 +21,9 @@ from .repositories import (
     InMemoryAuditEventRepository,
     InMemoryDraftRepository,
     InMemoryOpportunityRepository,
+    InMemoryVoiceProfileRepository,
     OpportunityRepository,
+    VoiceProfileRepository,
 )
 from .technical import audit_site_resources, audit_snapshot
 
@@ -59,21 +61,35 @@ class LoopService:
     audit_events: AuditEventRepository = field(
         default_factory=InMemoryAuditEventRepository
     )
+    voice_profiles: VoiceProfileRepository = field(
+        default_factory=InMemoryVoiceProfileRepository
+    )
     _runs: int = 0
 
     def _resolve_voice(
         self, brand: str, guidelines: str | None, snapshot, *, org_id: str, domain_id: str
     ) -> BrandVoice:
-        """Resolve the brand voice for this draft. An explicit per-domain
-        ``guidelines`` string wins; otherwise derive the voice from the crawled
-        site (the content-engine 'training' step), falling back to the service
-        default when the site has too little copy to learn from."""
+        """Resolve the brand voice for a customer run. Precedence: an explicit
+        per-domain ``guidelines`` string > a previously cached derived profile >
+        derive from the crawled site now (and cache it for next time). Caching
+        avoids re-paying for derivation on every run."""
+        resolved_brand = brand or self.voice.brand
         if guidelines:
-            return BrandVoice(brand=brand or self.voice.brand, guidelines=guidelines)
-        return derive_brand_voice(
-            self.meter, self.provider, snapshot, brand or self.voice.brand,
+            return BrandVoice(brand=resolved_brand, guidelines=guidelines)
+
+        cached = self.voice_profiles.get(org_id=org_id, domain_id=domain_id)
+        if cached:
+            return BrandVoice(brand=resolved_brand, guidelines=cached)
+
+        voice = derive_brand_voice(
+            self.meter, self.provider, snapshot, resolved_brand,
             org_id=org_id, domain_id=domain_id, fallback=self.voice.guidelines,
         )
+        self.voice_profiles.save(
+            org_id=org_id, domain_id=domain_id,
+            brand=voice.brand, guidelines=voice.guidelines,
+        )
+        return voice
 
     def run(
         self,
@@ -136,11 +152,12 @@ class LoopService:
         )
         sample: ContentPiece | None = None
         if monitoring.opportunities:
-            # An audit analyzes the prospect's OWN site, so always derive the voice
-            # from the crawl (ignore any caller-supplied voice, which would be the
-            # operator's default, not this site's).
-            voice = self._resolve_voice(
-                brand, None, snapshot, org_id=org_id, domain_id=domain_id
+            # An audit analyzes the prospect's OWN site, so derive the voice fresh
+            # from the crawl — never the operator's configured voice, and never
+            # cached (the audited URL isn't this tenant's domain).
+            voice = derive_brand_voice(
+                self.meter, self.provider, snapshot, brand,
+                org_id=org_id, domain_id=domain_id, fallback=self.voice.guidelines,
             )
             sample = generate_content_draft(
                 self.meter, self.provider, monitoring.opportunities[0], voice,

@@ -97,6 +97,17 @@ class PostgresPersistenceTest(unittest.TestCase):
         self.assertTrue(events)
         self.assertTrue(any(e.metadata.get("usage_record_id") == "u-1" for e in events))
 
+    def test_voice_profile_cache_round_trip(self) -> None:
+        from queryclear_agent_runtime.db import SqlVoiceProfileRepository
+
+        repo = SqlVoiceProfileRepository(self.engine)
+        repo.save(org_id=ORG_A, domain_id=DOM_A, brand="Acme", guidelines="Crisp and concrete.")
+        self.assertEqual(repo.get(org_id=ORG_A, domain_id=DOM_A), "Crisp and concrete.")
+        # upsert in place, and tenant-scoped
+        repo.save(org_id=ORG_A, domain_id=DOM_A, brand="Acme", guidelines="Wry.")
+        self.assertEqual(repo.get(org_id=ORG_A, domain_id=DOM_A), "Wry.")
+        self.assertIsNone(repo.get(org_id=ORG_B, domain_id=DOM_A))
+
     def test_rls_isolates_tenants(self) -> None:
         import sqlalchemy as sa
 

@@ -15,6 +15,7 @@ from queryclear_agent_runtime.db import (  # noqa: E402
     SqlBudgetRepository,
     SqlDraftRepository,
     SqlOpportunityRepository,
+    SqlVoiceProfileRepository,
     metadata,
     opportunities,
     organizations,
@@ -189,6 +190,28 @@ class SqlAuditEventRepositoryTest(unittest.TestCase):
         repo = SqlAuditEventRepository(_empty_engine())
         repo.append(self._event(), org_id="org_1", domain_id="domain_1")
         self.assertEqual(repo.list(org_id="other_org"), [])
+
+
+class SqlVoiceProfileRepositoryTest(unittest.TestCase):
+    def test_save_get_and_upsert(self) -> None:
+        repo = SqlVoiceProfileRepository(_empty_engine())
+        self.assertIsNone(repo.get(org_id="org_1", domain_id="domain_1"))
+
+        repo.save(org_id="org_1", domain_id="domain_1", brand="Acme", guidelines="Crisp.")
+        self.assertEqual(repo.get(org_id="org_1", domain_id="domain_1"), "Crisp.")
+
+        # one profile per domain — saving again updates in place
+        repo.save(org_id="org_1", domain_id="domain_1", brand="Acme", guidelines="Wry.")
+        self.assertEqual(repo.get(org_id="org_1", domain_id="domain_1"), "Wry.")
+        from queryclear_agent_runtime.db import brand_voice_profiles
+        with repo._engine.connect() as conn:
+            count = conn.execute(sa.select(sa.func.count()).select_from(brand_voice_profiles)).scalar()
+        self.assertEqual(count, 1)
+
+    def test_get_is_tenant_scoped(self) -> None:
+        repo = SqlVoiceProfileRepository(_empty_engine())
+        repo.save(org_id="org_1", domain_id="domain_1", brand="Acme", guidelines="Crisp.")
+        self.assertIsNone(repo.get(org_id="other_org", domain_id="domain_1"))
 
 
 if __name__ == "__main__":

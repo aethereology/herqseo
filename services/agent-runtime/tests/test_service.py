@@ -178,6 +178,43 @@ class LoopServiceTest(unittest.TestCase):
         # the voice derived from the site (not the service default) drives the draft
         self.assertIn("Crisp, concrete, finance-savvy", provider.content_systems[0])
 
+    def test_voice_is_derived_once_then_cached(self) -> None:
+        rich = "We automate accounts payable for finance teams. Plain words, fast results. " * 5
+
+        class _RichFetcher:
+            def fetch(self, url: str) -> str:
+                return f"<html><head><title>Acme AP</title></head><body><p>{rich}</p></body></html>"
+
+        class _CountingProvider:
+            def __init__(self) -> None:
+                self.voice_calls = 0
+
+            def complete(self, request, prompt, *, system=None) -> ModelResponse:
+                if request.task_class == "classification" and "style guide" in prompt.lower():
+                    self.voice_calls += 1
+                    content = "Crisp, concrete, finance-savvy."
+                elif request.task_class == "classification":
+                    content = "best ap automation"
+                elif request.task_class == "monitoring":
+                    content = "Use a competitor."
+                else:
+                    content = "## Answer\nAcme automates AP."
+                return ModelResponse(content=content, input_tokens=30, output_tokens=60, cost_usd=Decimal("0.001"))
+
+        repo = InMemoryBudgetRepository({"org_1": TokenBudget("org_1", 1_000_000)})
+        provider = _CountingProvider()
+        service = LoopService(
+            meter=TokenMeter(repo), provider=provider, fetcher=_RichFetcher(),
+            voice=BrandVoice("QueryClear", "Plain and direct."), publisher=_FakePublisher(),
+        )
+        kw = dict(org_id="org_1", domain_id="domain_1", domain_url="https://acme.test", brand="Acme", samples=2)
+        service.run(**kw)
+        service.run(**kw)
+
+        # derived on the first run, served from cache on the second
+        self.assertEqual(provider.voice_calls, 1)
+        self.assertEqual(service.voice_profiles.get(org_id="org_1", domain_id="domain_1"), "Crisp, concrete, finance-savvy.")
+
     def test_run_falls_back_to_default_voice_guidelines(self) -> None:
         class _CapturingProvider(_FakeProvider):
             def __init__(self) -> None:

@@ -186,6 +186,7 @@ model Domain {
   citationCampaigns    CitationCampaign[]
   approvalEvents       ApprovalEvent[]
   auditEvents          AuditEvent[]
+  brandVoiceProfile    BrandVoiceProfile?
   modelUsage           ModelUsage[]
   liftMeasurements     LiftMeasurement[]
 
@@ -334,6 +335,20 @@ model ApprovalEvent {
 
   @@index([orgId, domainId, createdAt])
   @@map("approval_events")
+}
+
+model BrandVoiceProfile {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId      String   @map("org_id") @db.Uuid
+  domainId   String   @unique @map("domain_id") @db.Uuid
+  brand      String
+  guidelines String
+  source     String   @default("derived")
+  updatedAt  DateTime @default(now()) @map("updated_at")
+  domain     Domain   @relation(fields: [domainId], references: [id])
+
+  @@index([orgId])
+  @@map("brand_voice_profiles")
 }
 
 model AuditEvent {
