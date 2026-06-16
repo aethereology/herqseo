@@ -98,6 +98,15 @@ export interface AuditReportData {
   opportunities: RuntimeOpportunity[];
   recommendations: AuditRecommendation[];
   sample_draft: RuntimeDraft | null;
+  detected_voice: string | null;
+}
+
+export interface AuditLogEntry {
+  entity_id: string;
+  action: string;
+  actor: string | null;
+  created_at: string;
+  metadata: Record<string, unknown>;
 }
 
 export class AgentRuntimeError extends Error {
@@ -190,6 +199,12 @@ export function runAudit(input: {
       brand: input.brand,
       samples: input.samples ?? 3
     })
+  });
+}
+
+export function fetchAuditLog(orgId: string): Promise<AuditLogEntry[]> {
+  return call<AuditLogEntry[]>(`/audit-log?org_id=${encodeURIComponent(orgId)}`, {
+    method: "GET"
   });
 }
 

@@ -77,4 +77,14 @@ def build_recommendations(
     items = [_from_finding(f) for f in findings]
     items += [_from_check(c) for c in checks if c.citation_frequency < threshold]
     items.sort(key=lambda r: (r.priority, 0 if r.provenance == "measured" else 1, r.title))
-    return [replace(rec, rank=i) for i, rec in enumerate(items[:limit], start=1)]
+    # Collapse duplicates (e.g. the same query gapped on multiple engines) to one
+    # action; the sort above keeps the highest-priority instance first.
+    seen: set[tuple[str, str]] = set()
+    deduped: list[Recommendation] = []
+    for rec in items:
+        key = (rec.kind, rec.title)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(rec)
+    return [replace(rec, rank=i) for i, rec in enumerate(deduped[:limit], start=1)]

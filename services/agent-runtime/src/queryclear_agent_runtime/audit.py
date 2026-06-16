@@ -21,3 +21,5 @@ class AuditReport:
     opportunities: tuple[Opportunity, ...]
     sample_draft: ContentPiece | None
     recommendations: tuple[Recommendation, ...] = ()
+    # Brand voice detected from the prospect's own site (when a sample was drafted).
+    detected_voice: str | None = None

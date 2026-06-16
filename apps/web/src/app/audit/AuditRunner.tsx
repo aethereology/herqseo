@@ -127,6 +127,17 @@ function Report({ report }: { report: AuditReportData }) {
         </div>
       </header>
 
+      {report.detected_voice ? (
+        <Section title="Detected brand voice">
+          <p className="px-5 py-4 text-sm italic leading-6 text-ink/70">
+            “{report.detected_voice}”
+          </p>
+          <p className="px-5 pb-4 text-xs text-ink/50">
+            Inferred from your own site copy — the sample draft below is written in this voice.
+          </p>
+        </Section>
+      ) : null}
+
       {report.recommendations.length > 0 ? (
         <Section title={`Prioritized recommendations (${report.recommendations.length})`}>
           <ol className="divide-y divide-line">

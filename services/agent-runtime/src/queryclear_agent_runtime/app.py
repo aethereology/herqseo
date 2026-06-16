@@ -134,6 +134,7 @@ def _report_json(report: AuditReport) -> dict[str, Any]:
             for r in report.recommendations
         ],
         "sample_draft": _piece_json(report.sample_draft) if report.sample_draft else None,
+        "detected_voice": report.detected_voice,
     }
 
 

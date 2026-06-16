@@ -175,13 +175,19 @@ class LoopService:
         findings.extend(
             audit_site_resources(check_site_resources(self.fetcher, domain_url), domain_url)
         )
+        # The audit probes ONE representative engine, not the full set: today every
+        # engine is the same model proxy (see monitoring.py), so probing five is 5x
+        # the latency for the same estimate and overstates independence. Breadth is
+        # the customer monitoring run()'s job; the prospect audit must be fast.
+        audit_engines = self.monitoring_engines[:1]
         monitoring = run_monitoring(
             self.meter, self.provider, snapshot, brand,
             org_id=org_id, domain_id=domain_id, samples=samples, max_prompts=max_prompts,
-            engines=self.monitoring_engines,
+            engines=audit_engines,
             routing_policy=self.routing_policy,
         )
         sample: ContentPiece | None = None
+        detected_voice: str | None = None
         if monitoring.opportunities:
             # An audit analyzes the prospect's OWN site, so derive the voice fresh
             # from the crawl — never the operator's configured voice, and never
@@ -191,6 +197,7 @@ class LoopService:
                 org_id=org_id, domain_id=domain_id, fallback=self.voice.guidelines,
                 routing_policy=self.routing_policy,
             )
+            detected_voice = voice.guidelines
             sample = generate_content_draft(
                 self.meter, self.provider, monitoring.opportunities[0], voice,
                 org_id=org_id, domain_id=domain_id,
@@ -205,6 +212,7 @@ class LoopService:
             opportunities=monitoring.opportunities,
             sample_draft=sample,
             recommendations=tuple(recommendations),
+            detected_voice=detected_voice,
         )
 
     def get_draft(self, draft_id: str, *, org_id: str) -> ContentPiece:

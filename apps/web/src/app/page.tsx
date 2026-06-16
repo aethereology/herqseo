@@ -6,6 +6,7 @@ import {
 } from "@queryclear/shared";
 import Link from "next/link";
 import { requireTenant } from "../lib/tenant";
+import { fetchAuditLog, type AuditLogEntry } from "../lib/agent-runtime";
 import { signOutOfDashboard } from "./sign-in/actions";
 import { OperatorConsole } from "./OperatorConsole";
 
@@ -27,6 +28,16 @@ export default async function Home() {
     plan.maxContentPerMonth === null ? "Unlimited" : plan.maxContentPerMonth.toString();
   const tokenUsed = tenant.organization.tokenUsedCurrentPeriod.toLocaleString();
   const tokenBudget = tenant.organization.tokenBudgetMonthly.toLocaleString();
+
+  // Persistent activity across runs (approvals/publishes). Degrade gracefully if
+  // the runtime isn't up — the dashboard must still render.
+  let activity: AuditLogEntry[] = [];
+  let activityError: string | null = null;
+  try {
+    activity = await fetchAuditLog(tenant.organization.id);
+  } catch (err) {
+    activityError = err instanceof Error ? err.message : "Activity unavailable";
+  }
 
   return (
     <main className="min-h-screen">
@@ -110,7 +121,67 @@ export default async function Home() {
           </div>
         </aside>
       </section>
+
+      <section className="mx-auto grid w-full max-w-7xl gap-6 px-5 pb-8 sm:px-8 lg:grid-cols-[1.2fr_0.8fr] lg:px-10">
+        <div className="rounded border border-line bg-white">
+          <div className="flex items-center justify-between border-b border-line px-5 py-3">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-moss">
+              Recent activity
+            </h2>
+            <span className="text-xs text-ink/50">approvals &amp; publishes</span>
+          </div>
+          {activityError ? (
+            <p className="px-5 py-4 text-sm text-ink/60">
+              Activity unavailable — {activityError}
+            </p>
+          ) : activity.length === 0 ? (
+            <p className="px-5 py-4 text-sm text-ink/60">
+              No activity yet. Run the loop and approve a draft to publish to staging.
+            </p>
+          ) : (
+            <ul className="divide-y divide-line">
+              {activity.slice(0, 8).map((e, i) => (
+                <ActivityRow key={`${e.entity_id}-${i}`} entry={e} />
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <div className="rounded border border-line bg-white p-5">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-moss">
+            Visibility lift
+          </h2>
+          <p className="mt-3 text-sm leading-6 text-ink/70">
+            Not yet measured. Lift is attributed by re-auditing the domain ~30 days
+            after the first published fixes, then comparing citation frequency on the
+            same prompts. We don&apos;t report a number until there&apos;s a real
+            before/after to compare.
+          </p>
+          <span className="mt-4 inline-block rounded border border-line bg-paper px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-ink/55">
+            Coming with lift measurement
+          </span>
+        </div>
+      </section>
     </main>
+  );
+}
+
+function ActivityRow({ entry }: { entry: AuditLogEntry }) {
+  const approvedBy =
+    typeof entry.metadata?.approved_by === "string" ? (entry.metadata.approved_by as string) : null;
+  return (
+    <li className="flex items-center justify-between gap-3 px-5 py-3">
+      <span className="min-w-0 text-sm text-ink">
+        <span className="mr-2 inline-block rounded border border-line bg-paper px-1.5 py-0.5 text-[11px] font-semibold uppercase text-ink/55">
+          {entry.action}
+        </span>
+        {entry.actor ?? "system"}
+        {approvedBy ? <span className="text-ink/55"> · approved by {approvedBy}</span> : null}
+      </span>
+      <span className="shrink-0 text-xs text-ink/50">
+        {entry.created_at.replace("T", " ").slice(0, 16)}
+      </span>
+    </li>
   );
 }
 

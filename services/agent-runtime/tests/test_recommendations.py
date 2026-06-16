@@ -87,6 +87,23 @@ class BuildRecommendationsTest(unittest.TestCase):
         recs = build_recommendations([], [_check("real gap", 0, 3, measured=True)])
         self.assertEqual(recs[0].provenance, "measured")
 
+    def test_dedupes_content_recs_by_query_across_engines(self) -> None:
+        # The same buyer-intent query probed on two engines is ONE action
+        # ("publish content for this query"), not two recommendations.
+        recs = build_recommendations(
+            [],
+            [
+                _check("best invoice tool", 0, 3),  # engine chatgpt
+                VisibilityCheck(
+                    prompt_id="vp-x", query="best invoice tool", brand="QueryClear",
+                    samples=3, cited_count=0, raw_responses=(), usage_record_ids=(),
+                    engine="gemini", measured=False,
+                ),
+            ],
+        )
+        self.assertEqual(len(recs), 1)
+        self.assertIn("best invoice tool", recs[0].title)
+
     def test_limit_caps_and_reranks(self) -> None:
         findings = [_finding(f"f{i}", "medium") for i in range(12)]
         recs = build_recommendations(findings, [], limit=10)

@@ -61,13 +61,19 @@ class AuditTest(unittest.TestCase):
         codes = {f.code for f in report.findings}
         self.assertIn("duplicated_title", codes)
         self.assertIn("thin_content", codes)
-        # invisible-query check ran
-        self.assertEqual(len(report.checks), 5)
+        # invisible-query check ran on ONE representative engine (fast audit;
+        # the fake provider seeds a single query)
+        self.assertEqual(len(report.checks), 1)
         self.assertEqual(report.checks[0].cited_count, 0)
         # a sample draft was generated for the gap
-        self.assertEqual(len(report.opportunities), 5)
+        self.assertEqual(len(report.opportunities), 1)
         self.assertIsNotNone(report.sample_draft)
         self.assertEqual(report.sample_draft.status, "pending_approval")
+        # prioritized recommendations and the detected brand voice are surfaced
+        self.assertTrue(report.recommendations)
+        self.assertEqual(report.recommendations[0].rank, 1)
+        self.assertIsInstance(report.detected_voice, str)
+        self.assertTrue(report.detected_voice)
 
     def test_audit_makes_no_draft_when_no_gap(self) -> None:
         class _CitedProvider(_FakeProvider):
@@ -82,6 +88,7 @@ class AuditTest(unittest.TestCase):
 
         self.assertEqual(report.opportunities, ())
         self.assertIsNone(report.sample_draft)
+        self.assertIsNone(report.detected_voice)
         # findings are independent of citation and still present
         self.assertTrue(report.findings)
 
