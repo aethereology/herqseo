@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -105,38 +106,61 @@ class InMemoryBudgetRepository:
 
 
 class TokenMeter:
+    """Thread-safe: model calls run concurrently, but the budget check and the
+    usage record are serialized so the cap holds and no increment is lost.
+
+    The slow model call happens OUTSIDE the lock. To keep enforcement as tight
+    under concurrency as it is single-threaded, each call reserves its
+    `reserved_tokens` under the lock before the call and releases the reservation
+    when it settles — so concurrent in-flight calls can't collectively overshoot
+    the cap.
+    """
+
     def __init__(self, budgets: BudgetRepository) -> None:
         self._budgets = budgets
+        self._lock = threading.Lock()
+        self._reserved: dict[str, int] = {}
 
     def run_metered(
         self,
         request: ModelRequest,
         invoke_model: Callable[[], ModelResponse],
     ) -> BudgetState:
-        budget = self._budgets.get_budget(request.org_id)
-        if budget.remaining_tokens <= 0:
-            raise BudgetExceeded(f"Token budget exhausted for org {request.org_id}")
+        org_id = request.org_id
+        with self._lock:
+            budget = self._budgets.get_budget(org_id)
+            available = budget.remaining_tokens - self._reserved.get(org_id, 0)
+            if available <= 0:
+                raise BudgetExceeded(f"Token budget exhausted for org {org_id}")
+            if request.reserved_tokens > available:
+                raise BudgetExceeded(
+                    "Model call reservation exceeds remaining token budget "
+                    f"for org {org_id}"
+                )
+            self._reserved[org_id] = self._reserved.get(org_id, 0) + request.reserved_tokens
 
-        if request.reserved_tokens > budget.remaining_tokens:
-            raise BudgetExceeded(
-                "Model call reservation exceeds remaining token budget "
-                f"for org {request.org_id}"
+        try:
+            response = invoke_model()
+        except BaseException:
+            with self._lock:
+                self._reserved[org_id] -= request.reserved_tokens
+            raise
+
+        with self._lock:
+            self._reserved[org_id] -= request.reserved_tokens
+            record = UsageRecord(
+                id=str(uuid4()),
+                org_id=request.org_id,
+                domain_id=request.domain_id,
+                task_class=request.task_class,
+                provider=request.provider,
+                model=request.model,
+                input_tokens=response.input_tokens,
+                output_tokens=response.output_tokens,
+                cost_usd=response.cost_usd,
+                created_at=datetime.now(UTC),
             )
-
-        response = invoke_model()
-        record = UsageRecord(
-            id=str(uuid4()),
-            org_id=request.org_id,
-            domain_id=request.domain_id,
-            task_class=request.task_class,
-            provider=request.provider,
-            model=request.model,
-            input_tokens=response.input_tokens,
-            output_tokens=response.output_tokens,
-            cost_usd=response.cost_usd,
-            created_at=datetime.now(UTC),
-        )
-        updated_budget = self._budgets.add_usage(record)
+            updated_budget = self._budgets.add_usage(record)
         return BudgetState(
             budget=updated_budget,
             usage=record,

@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import re
 from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Protocol
@@ -17,6 +18,10 @@ _TASK_MONITORING = "monitoring"
 _MAX_OUTPUT_TOKENS = 256
 
 _MAX_SEED_OUTPUT_TOKENS = 300
+
+# Visibility probes are I/O-bound model calls; run them concurrently. The
+# TokenMeter is thread-safe, so budgets stay enforced across workers.
+_MAX_PROBE_WORKERS = 8
 
 AI_ENGINES: tuple[str, ...] = (
     "chatgpt",
@@ -333,32 +338,38 @@ def run_visibility_checks(
             routing_policy=routing_policy,
             model=model,
         )
+    pairs = [(adapter, prompt) for adapter in adapters for prompt in prompts]
+    if not pairs or samples <= 0:
+        return []
+
+    # Probe every (engine, prompt) sample concurrently — these are slow I/O-bound
+    # model calls and the meter is thread-safe. Checks are assembled in pair order
+    # afterward, so output ordering stays deterministic.
+    probes_by_pair: list[list[EngineProbe]] = [[] for _ in pairs]
+    tasks = [(i, adapter, prompt) for i, (adapter, prompt) in enumerate(pairs) for _ in range(samples)]
+    with ThreadPoolExecutor(max_workers=min(_MAX_PROBE_WORKERS, len(tasks))) as pool:
+        futures = {pool.submit(adapter.probe, prompt.query): i for i, adapter, prompt in tasks}
+        for future in as_completed(futures):
+            probes_by_pair[futures[future]].append(future.result())
+
     checks: list[VisibilityCheck] = []
-    for adapter in adapters:
-        for prompt in prompts:
-            cited = 0
-            raw: list[str] = []
-            usage_ids: list[str] = []
-            needle = prompt.brand.lower()
-            for _ in range(samples):
-                probe = adapter.probe(prompt.query)
-                raw.append(probe.content)
-                usage_ids.append(probe.usage_record_id)
-                if needle in probe.content.lower():
-                    cited += 1
-            checks.append(
-                VisibilityCheck(
-                    prompt_id=prompt.id,
-                    query=prompt.query,
-                    brand=prompt.brand,
-                    samples=samples,
-                    cited_count=cited,
-                    raw_responses=tuple(raw),
-                    usage_record_ids=tuple(usage_ids),
-                    engine=adapter.engine,
-                    measured=adapter.measured,
-                )
+    for i, (adapter, prompt) in enumerate(pairs):
+        probes = probes_by_pair[i]
+        needle = prompt.brand.lower()
+        cited = sum(1 for probe in probes if needle in probe.content.lower())
+        checks.append(
+            VisibilityCheck(
+                prompt_id=prompt.id,
+                query=prompt.query,
+                brand=prompt.brand,
+                samples=samples,
+                cited_count=cited,
+                raw_responses=tuple(probe.content for probe in probes),
+                usage_record_ids=tuple(probe.usage_record_id for probe in probes),
+                engine=adapter.engine,
+                measured=adapter.measured,
             )
+        )
     return checks
 
 
