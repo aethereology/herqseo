@@ -7,7 +7,7 @@ types are kept portable so the same code runs on Postgres and on SQLite (tests).
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from uuid import uuid4
 
 import sqlalchemy as sa
@@ -119,6 +119,19 @@ audit_events = sa.Table(
     sa.Column("actor", sa.String, nullable=False),
     sa.Column("metadata", sa.JSON, nullable=False),
     sa.Column("created_at", _TS, nullable=False),
+)
+
+
+brand_voice_profiles = sa.Table(
+    "brand_voice_profiles",
+    metadata,
+    sa.Column("id", _UUID, primary_key=True),
+    sa.Column("org_id", _UUID, nullable=False),
+    sa.Column("domain_id", _UUID, nullable=False, unique=True),
+    sa.Column("brand", sa.String, nullable=False),
+    sa.Column("guidelines", sa.String, nullable=False),
+    sa.Column("source", sa.String, nullable=False),
+    sa.Column("updated_at", _TS, nullable=False),
 )
 
 
@@ -351,3 +364,42 @@ class SqlAuditEventRepository:
             )
             for row in rows
         ]
+
+
+class SqlVoiceProfileRepository:
+    """Postgres/SQLite-backed `VoiceProfileRepository`. One profile per domain
+    (upserted), so a derived brand voice is cached instead of re-derived each run."""
+
+    def __init__(self, engine: sa.Engine) -> None:
+        self._engine = engine
+
+    def get(self, *, org_id: str, domain_id: str) -> str | None:
+        with self._engine.begin() as conn:
+            _scope_conn(conn, org_id)
+            row = conn.execute(
+                sa.select(brand_voice_profiles.c.guidelines).where(
+                    brand_voice_profiles.c.org_id == org_id,
+                    brand_voice_profiles.c.domain_id == domain_id,
+                )
+            ).first()
+        return row[0] if row else None
+
+    def save(self, *, org_id: str, domain_id: str, brand: str, guidelines: str) -> None:
+        now = datetime.now(UTC).isoformat()
+        with self._engine.begin() as conn:
+            _scope_conn(conn, org_id)
+            updated = conn.execute(
+                sa.update(brand_voice_profiles)
+                .where(
+                    brand_voice_profiles.c.org_id == org_id,
+                    brand_voice_profiles.c.domain_id == domain_id,
+                )
+                .values(brand=brand, guidelines=guidelines, source="derived", updated_at=now)
+            )
+            if updated.rowcount == 0:
+                conn.execute(
+                    sa.insert(brand_voice_profiles).values(
+                        id=str(uuid4()), org_id=org_id, domain_id=domain_id,
+                        brand=brand, guidelines=guidelines, source="derived", updated_at=now,
+                    )
+                )

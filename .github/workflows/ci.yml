@@ -53,8 +53,10 @@ jobs:
           PGPASSWORD: queryclear
         run: |
           PSQL="psql -h localhost -U queryclear -d queryclear -v ON_ERROR_STOP=1"
-          $PSQL -f packages/db/migrations/0001_initial_tenancy/migration.sql
-          $PSQL -f packages/db/migrations/0002_runtime_persistence/migration.sql
+          for m in $(ls -d packages/db/migrations/*/ | sort); do
+            echo "applying $m"
+            $PSQL -f "${m}migration.sql"
+          done
           $PSQL <<'SQL'
           CREATE ROLE qc_app LOGIN PASSWORD 'qc_app_pw';
           GRANT USAGE ON SCHEMA app, public TO qc_app;

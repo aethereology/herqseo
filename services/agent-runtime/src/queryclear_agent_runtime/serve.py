@@ -86,6 +86,7 @@ def build_service() -> LoopService:
             SqlBudgetRepository,
             SqlDraftRepository,
             SqlOpportunityRepository,
+            SqlVoiceProfileRepository,
             create_engine_from_url,
         )
 
@@ -95,6 +96,7 @@ def build_service() -> LoopService:
             "drafts": SqlDraftRepository(engine),
             "opportunities": SqlOpportunityRepository(engine),
             "audit_events": SqlAuditEventRepository(engine),
+            "voice_profiles": SqlVoiceProfileRepository(engine),
         }
     else:
         meter = TokenMeter(InMemoryBudgetRepository({org_id: TokenBudget(org_id, budget)}))

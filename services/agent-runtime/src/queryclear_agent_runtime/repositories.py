@@ -33,6 +33,11 @@ class AuditEventRepository(Protocol):
     def list(self, *, org_id: str) -> list[AuditEvent]: ...
 
 
+class VoiceProfileRepository(Protocol):
+    def get(self, *, org_id: str, domain_id: str) -> str | None: ...
+    def save(self, *, org_id: str, domain_id: str, brand: str, guidelines: str) -> None: ...
+
+
 class InMemoryDraftRepository:
     def __init__(self) -> None:
         self._by_id: dict[str, ContentPiece] = {}
@@ -66,3 +71,14 @@ class InMemoryAuditEventRepository:
 
     def list(self, *, org_id: str) -> list[AuditEvent]:
         return [event for owner, event in self._events if owner == org_id]
+
+
+class InMemoryVoiceProfileRepository:
+    def __init__(self) -> None:
+        self._by_domain: dict[tuple[str, str], str] = {}
+
+    def get(self, *, org_id: str, domain_id: str) -> str | None:
+        return self._by_domain.get((org_id, domain_id))
+
+    def save(self, *, org_id: str, domain_id: str, brand: str, guidelines: str) -> None:
+        self._by_domain[(org_id, domain_id)] = guidelines
