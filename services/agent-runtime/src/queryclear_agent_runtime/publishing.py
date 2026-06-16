@@ -15,6 +15,10 @@ class StagingOnlyError(RuntimeError):
     pass
 
 
+class PreflightError(RuntimeError):
+    """A WordPress connection check failed, with an actionable reason."""
+
+
 @dataclass(frozen=True)
 class PublishResult:
     cms_post_id: str
@@ -64,6 +68,43 @@ class WordPressPublisher:
         self._auth = (username, app_password)
         self._client = client
         self._timeout = timeout
+
+    def preflight(self) -> None:
+        """Verify, before we rely on it to publish, that the REST API is reachable,
+        returns JSON (pretty permalinks are on), and accepts the application
+        password. Raises ``PreflightError`` with a fix-oriented message; returns
+        ``None`` on success.
+
+        Both failure modes here are real onboarding traps: with plain permalinks
+        ``/wp-json/`` silently serves the HTML home page (HTTP 200), and WordPress
+        only honors application passwords over HTTPS or on a ``local`` environment.
+        """
+        client = self._get_client()
+        url = f"{self._base_url}/wp-json/wp/v2/users/me?context=edit"
+        try:
+            response = client.get(url, auth=self._auth, timeout=self._timeout)
+        except Exception as exc:  # DNS / connection / TLS
+            raise PreflightError(
+                f"Could not reach {self._base_url}. Check the site URL and that the "
+                f"site is online ({exc})."
+            ) from exc
+
+        status = getattr(response, "status_code", None)
+        if status in (401, 403):
+            raise PreflightError(
+                f"WordPress rejected the credentials (HTTP {status}). Verify the "
+                "username and application password, and note that WordPress only "
+                "accepts application passwords over HTTPS or on a 'local' environment."
+            )
+        content_type = response.headers.get("content-type", "")
+        if "json" not in content_type.lower():
+            raise PreflightError(
+                f"The REST API did not return JSON (content-type: {content_type!r}). "
+                "The site is most likely using plain permalinks — switch to pretty "
+                "permalinks (Settings → Permalinks) so /wp-json/ reaches the REST API."
+            )
+        if status is not None and status >= 400:
+            raise PreflightError(f"WordPress REST preflight failed (HTTP {status}).")
 
     def publish(self, *, title: str, body: str, status: str = "draft") -> PublishResult:
         if status not in _STAGING_STATUSES:

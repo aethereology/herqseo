@@ -11,6 +11,7 @@ from queryclear_agent_runtime import (  # noqa: E402
     ApprovalRequired,
     AuditEvent,
     ContentPiece,
+    PreflightError,
     PublishResult,
     StagingOnlyError,
     WordPressPublisher,
@@ -88,6 +89,59 @@ class WordPressPublisherTest(unittest.TestCase):
             wp.publish(title="Hello", body="Body", status="publish")
 
         self.assertEqual(http.calls, [])  # never hit the network
+
+
+class _FakeGetResponse:
+    def __init__(self, status_code: int, content_type: str) -> None:
+        self.status_code = status_code
+        self.headers = {"content-type": content_type}
+
+    def json(self) -> dict:
+        return {"id": 1, "name": "qcadmin"}
+
+
+class _FakeGetHttp:
+    def __init__(self, response=None, raise_exc=None) -> None:
+        self._response = response
+        self._raise = raise_exc
+        self.calls: list[dict] = []
+
+    def get(self, url, *, auth=None, timeout=None):
+        self.calls.append({"url": url, "auth": auth})
+        if self._raise is not None:
+            raise self._raise
+        return self._response
+
+
+class WordPressPreflightTest(unittest.TestCase):
+    def _wp(self, http) -> WordPressPublisher:
+        return WordPressPublisher(
+            base_url="https://site.test/", username="u", app_password="p", client=http
+        )
+
+    def test_ok_when_rest_returns_json(self) -> None:
+        http = _FakeGetHttp(_FakeGetResponse(200, "application/json; charset=UTF-8"))
+        self._wp(http).preflight()  # no raise
+        self.assertEqual(http.calls[0]["url"], "https://site.test/wp-json/wp/v2/users/me?context=edit")
+        self.assertEqual(http.calls[0]["auth"], ("u", "p"))
+
+    def test_auth_failure_is_actionable(self) -> None:
+        http = _FakeGetHttp(_FakeGetResponse(401, "application/json"))
+        with self.assertRaises(PreflightError) as ctx:
+            self._wp(http).preflight()
+        self.assertIn("application password", str(ctx.exception))
+
+    def test_plain_permalinks_detected(self) -> None:
+        http = _FakeGetHttp(_FakeGetResponse(200, "text/html; charset=UTF-8"))
+        with self.assertRaises(PreflightError) as ctx:
+            self._wp(http).preflight()
+        self.assertIn("permalinks", str(ctx.exception).lower())
+
+    def test_unreachable_site(self) -> None:
+        http = _FakeGetHttp(raise_exc=OSError("connection refused"))
+        with self.assertRaises(PreflightError) as ctx:
+            self._wp(http).preflight()
+        self.assertIn("reach", str(ctx.exception).lower())
 
 
 class PublishContentTest(unittest.TestCase):
