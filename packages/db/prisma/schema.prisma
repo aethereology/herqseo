@@ -77,6 +77,8 @@ enum OpportunityStatus {
 enum ContentStatus {
   draft
   pending_approval
+  approved
+  rejected
   published
   failed
 }
