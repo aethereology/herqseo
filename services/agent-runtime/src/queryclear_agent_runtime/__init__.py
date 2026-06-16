@@ -60,6 +60,7 @@ from .service import (
 from .publishing import (
     AuditEvent,
     CmsPublisher,
+    PreflightError,
     PublishOutcome,
     PublishResult,
     StagingOnlyError,
@@ -118,6 +119,7 @@ __all__ = [
     "Opportunity",
     "Page",
     "PageFetcher",
+    "PreflightError",
     "PublishOutcome",
     "PublishResult",
     "RunResult",
