@@ -1,0 +1,6 @@
+# Lean deps for the stateless public audit on Vercel (no db/sqlalchemy/uvicorn).
+# fastapi is imported transitively via app.py's _report_json/_brand_from_url.
+fastapi>=0.110
+openai>=1.40
+httpx>=0.27
+python-dotenv>=1.0
