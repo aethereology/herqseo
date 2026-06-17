@@ -2,6 +2,7 @@
   "name": "queryclear",
   "version": "0.0.0",
   "private": true,
+  "packageManager": "npm@11.15.0",
   "description": "Autonomous SEO/AEO/GEO operator for mid-market B2B SaaS.",
   "engines": {
     "node": ">=20"
