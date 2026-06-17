@@ -55,7 +55,7 @@ The loop, end to end, once: crawl one site → run visibility prompts → create
 - [ ] **P2-5** Autonomy "Auto-publish" mode with brand-safety guardrails + escalation.
 - [ ] **P2-6** Per-customer token budgets fully enforced + overage billing in Stripe.
 - [ ] **P2-7** CRM/revenue attribution graph.
-- [ ] **P2-8** Free AEO audit tool (top-of-funnel lead magnet).
+- [~] **P2-8** Free AEO audit tool (top-of-funnel lead magnet). **Built (Session 30), verified live end-to-end, deploy pending.** Public no-auth surface at `/free-audit` (separate from the authed operator `/audit`): run audit → free summary preview (score + top findings + counts) → **email gate** → full report. Cost/abuse guardrails at the web edge (`apps/web/src/lib/public-audit.ts`, behind a `PublicAuditStore` interface): per-IP rate limit + global daily-spend cap with a circuit-breaker that auto-gates to email capture when the cap is hit, + a short-TTL report cache so the email unlock reveals the report without re-running/re-paying. `/api/public/audit` + `/api/public/lead` routes; shared `AuditReportView` extracted from `AuditRunner`. Browser-verified with real OpenAI: summary (6 issues/1 invisible/8 recs) → email unlock → full report; lead captured. **Config:** `PUBLIC_AUDIT_DAILY_CAP_USD` (5), `PUBLIC_AUDIT_COST_USD` (0.01), `PUBLIC_AUDIT_IP_LIMIT` (5/hr), `PUBLIC_AUDIT_ORG_ID/DOMAIN_ID`.
 
 ## Phase 3 — Agencies + Autopilot (Month 6–12 goal: $1.5M ARR, 80+ customers)
 
@@ -72,6 +72,30 @@ The loop, end to end, once: crawl one site → run visibility prompts → create
 - [ ] **P4-3** Enterprise tier hardening.
 
 ---
+
+## Deploy — public lead magnet (Phase B, chosen GTM motion: All-Vercel)
+
+The `/free-audit` lead magnet is built and works locally, but the in-memory guard
+stores live on `globalThis`, which is **per-instance** on Vercel. Before any public
+deploy:
+
+- [ ] **MANDATORY: back `PublicAuditStore` with Upstash Redis.** Without a shared
+  store the $5/day cap is per-instance (so it won't actually hold globally) **and**
+  the email-unlock report cache misses across instances (unlock breaks). The
+  `PublicAuditStore` interface is the drop-in seam — implement a `RedisPublicAuditStore`
+  (atomic `INCR`/`EXPIRE` for rate limit + daily spend; `SET ... EX` for the report
+  cache). Add Upstash via Vercel Marketplace. **Do not expose the tool publicly until this is wired** — it's a money-bomb otherwise.
+- [ ] Real `LeadSink`: send the lead to a destination the founder will actually use —
+  Resend email to the founder, a CRM, or Vercel Postgres. (In-memory now loses leads on restart.)
+- [ ] Deploy: web app on Vercel; the stateless Python audit as a Vercel Python function
+  (Pro plan / Fluid Compute for the ~20s timeout) **or** run the FastAPI runtime on a
+  container and set `AGENT_RUNTIME_URL`. Set env: `OPENAI_API_KEY`, `PUBLIC_AUDIT_*`,
+  `AGENT_RUNTIME_URL`, `AUTH_SECRET`. Seed a public-org token budget in the runtime
+  (`PUBLIC_AUDIT_ORG_ID`) as the per-audit cost backstop.
+- [ ] Point the domain (queryclear.com or a subdomain) at Vercel; `/free-audit` is the
+  public URL. Confirm the operator dashboard/`/audit`/`/settings` stay auth-gated.
+- [ ] Add web unit tests (vitest) for the guard logic (rate limit + spend cap) — the
+  money path on the public surface currently has no automated test.
 
 ## Discovered tasks (add as you find them)
 
