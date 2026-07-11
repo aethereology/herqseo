@@ -25,7 +25,7 @@ The loop, end to end, once: crawl one site → run visibility prompts → create
 
 **Done when:** the agent reliably produces a publish-worthy draft a human approves, it publishes without breaking the target, and every model call + action is metered and audited. (Visibility/traffic lift is explicitly NOT the M0 metric — see `docs/roadmap.md`.)
 
-- [~] **M0-1** `AgentRuntime` interface + `HermesAgentRuntime` (first impl) for one domain. See `specs/hermes-agent-layer.md`.
+- [~] **M0-1** `AgentRuntime` interface + first real implementation for one domain. **Hermes dropped (D14, Session 32 — was never installed; the "HermesAgentRuntime" was always an in-memory stub).** The first real implementation is `ClaudeAgentRuntime` on the **Claude Agent SDK** — see `agent-runtime-layer.md` (was `hermes-agent-layer.md`).
 - [x] **M0-2** OpenAI-only path through the token-metering wrapper. `OpenAIProvider` (lazy SDK import) + data-driven `OPENAI_PRICING` + `run_model()` glue; SDK call never bypasses the meter. Tests cover cost math and over-budget gating.
 - [x] **M0-3** Crawl one site → visibility prompts → create opportunities. `crawl.py` (bounded seed-path fetch, stdlib HTML parse, lazy httpx) → `monitoring.py` (`derive_prompts` → metered `run_visibility_checks` with repeated sampling → `generate_opportunities`), orchestrated by `run_monitoring()`. Every sample metered; opportunities are explainable (rationale + prompt trace). Offline-tested with fake fetcher/provider.
 - [x] **M0-4** Generate ONE draft (brand-voice) → Review-mode approval gate. `content.py`: `BrandVoice`, `generate_content_draft` (frontier model, answer-first system prompt, metered, rejects non-content opps) → `ContentPiece` (`pending_approval`); `review_content` records approve/reject + reviewer; `assert_approved_for_publish` blocks any publish unless `approved` in Review mode (auto modes disabled in M0). Schema/internal-links/guardrails deferred to P1-6.
@@ -35,7 +35,7 @@ The loop, end to end, once: crawl one site → run visibility prompts → create
 
 ## Phase 1 — Core agent loop (Month 0–3 goal: 5 customers publishing)
 
-- [x] **P1-1** Generalize the `AgentRuntime`/`HermesAgentRuntime` from M0 to multi-domain; expose full API to orchestration. See `specs/hermes-agent-layer.md`. `HermesAgentRuntime` now enforces one agent per org/domain, supports `get`/`list`, isolated memory, schedules, run history/results, pause/resume, and payload-linked run metadata. FastAPI now exposes `/agents`, `/agents/{id}/run`, `/status`, `/results`, `/memory`, `/schedule`, `/pause`, and `/resume`. **Still deferred:** installing/calling the real Hermes framework (`M0-1` remains the real-Hermes task).
+- [x] **P1-1** Generalize the `AgentRuntime` boundary from M0 to multi-domain; expose full API to orchestration. See `agent-runtime-layer.md`. The runtime now enforces one agent per org/domain, supports `get`/`list`, isolated memory, schedules, run history/results, pause/resume, and payload-linked run metadata. FastAPI now exposes `/agents`, `/agents/{id}/run`, `/status`, `/results`, `/memory`, `/schedule`, `/pause`, and `/resume`. **Still deferred:** the real agent substrate (`M0-1` — now the Claude Agent SDK task per D14).
 - [x] **P1-2** Model-agnostic router (OpenAI default; pluggable providers). See `docs/architecture.md`. `RoutingProvider` dispatches by `request.provider`; `AnthropicProvider` is a real second vendor (lazy SDK, `ANTHROPIC_PRICING`). `ModelRoutingPolicy` now maps `task_class → provider/model` and is consulted by every runtime `ModelRequest` build site (`classification`, `monitoring`, `content_generation`), replacing scattered model constants. `serve.py` registers whichever vendor keys exist and reads optional `QUERYCLEAR_MODEL_ROUTE_*` env overrides.
 - [x] **P1-3** Domain ingestion: crawl + store a customer's site structure and content. `crawl_site()` now extracts links and follows bounded same-domain links under `max_pages`; `Page` stores links. Customer `LoopService.run()` persists each crawl through `CrawlSnapshotRepository`. SQL persistence now stores crawl events in `crawl_snapshots` plus queryable page rows in new `crawl_pages` (migration `0004_domain_ingestion_pages`, RLS, Prisma `CrawlPage`, SQLAlchemy `SqlCrawlSnapshotRepository`). Offline tests cover link discovery, SQLite round-trips, service persistence, and optional Postgres JSON/RLS coverage.
 - [~] **P1-4** Monitoring engine v1: audit brand visibility across 5 AI engines. See `monitoring-engine.md`. **Done this slice:** default Phase-1 monitoring set runs five engine probes with repeated sampling, Wilson confidence intervals, engine-aware opportunities, raw response refs, SQL/InMemory `VisibilityCheckRepository` persistence, and audit UI engine chips. `QUERYCLEAR_MONITORING_ENGINES` can narrow/override the set. **Engine adapter seam landed (Session 28):** `EngineAdapter` Protocol + `EngineProbe` + `ModelProxyAdapter` + `build_proxy_adapters`; `run_visibility_checks(..., adapters=)` accepts injected adapters (defaults to one `ModelProxyAdapter` per engine). `VisibilityCheck.measured` is the honesty flag (proxies = `False`), surfaced through the audit JSON (`measured`) and the audit UI ("est." badge + disclosure note) so model-proxy estimates are never presented as live measurements. **Remaining:** implement real/compliant adapters (Perplexity Sonar, Gemini grounded) behind the seam — needs API keys + budget; persist `measured` on `visibility_checks` (migration) when the first real adapter lands; richer extraction (citation rank, competitors, sentiment).
@@ -55,7 +55,7 @@ The loop, end to end, once: crawl one site → run visibility prompts → create
 - [ ] **P2-5** Autonomy "Auto-publish" mode with brand-safety guardrails + escalation.
 - [ ] **P2-6** Per-customer token budgets fully enforced + overage billing in Stripe.
 - [ ] **P2-7** CRM/revenue attribution graph.
-- [~] **P2-8** Free AEO audit tool (top-of-funnel lead magnet). **Built (Session 30), verified live end-to-end, deploy pending.** Public no-auth surface at `/free-audit` (separate from the authed operator `/audit`): run audit → free summary preview (score + top findings + counts) → **email gate** → full report. Cost/abuse guardrails at the web edge (`apps/web/src/lib/public-audit.ts`, behind a `PublicAuditStore` interface): per-IP rate limit + global daily-spend cap with a circuit-breaker that auto-gates to email capture when the cap is hit, + a short-TTL report cache so the email unlock reveals the report without re-running/re-paying. `/api/public/audit` + `/api/public/lead` routes; shared `AuditReportView` extracted from `AuditRunner`. Browser-verified with real OpenAI: summary (6 issues/1 invisible/8 recs) → email unlock → full report; lead captured. **Config:** `PUBLIC_AUDIT_DAILY_CAP_USD` (5), `PUBLIC_AUDIT_COST_USD` (0.01), `PUBLIC_AUDIT_IP_LIMIT` (5/hr), `PUBLIC_AUDIT_ORG_ID/DOMAIN_ID`.
+- [x] **P2-8** Free AEO audit tool (top-of-funnel lead magnet). **DEPLOYED — live at https://www.queryclear.com/free-audit (verified Session 32), served from the separate `queryclear` marketing repo (Upstash Redis guardrails + Resend lead sink) calling the deployed `agent-runtime-eta.vercel.app/api/audit` Python function.** Remaining hardening tracked in the Deploy section below (guard tests). Original build notes: Public no-auth surface at `/free-audit` (separate from the authed operator `/audit`): run audit → free summary preview (score + top findings + counts) → **email gate** → full report. Cost/abuse guardrails at the web edge (`apps/web/src/lib/public-audit.ts`, behind a `PublicAuditStore` interface): per-IP rate limit + global daily-spend cap with a circuit-breaker that auto-gates to email capture when the cap is hit, + a short-TTL report cache so the email unlock reveals the report without re-running/re-paying. `/api/public/audit` + `/api/public/lead` routes; shared `AuditReportView` extracted from `AuditRunner`. Browser-verified with real OpenAI: summary (6 issues/1 invisible/8 recs) → email unlock → full report; lead captured. **Config:** `PUBLIC_AUDIT_DAILY_CAP_USD` (5), `PUBLIC_AUDIT_COST_USD` (0.01), `PUBLIC_AUDIT_IP_LIMIT` (5/hr), `PUBLIC_AUDIT_ORG_ID/DOMAIN_ID`.
 
 ## Phase 3 — Agencies + Autopilot (Month 6–12 goal: $1.5M ARR, 80+ customers)
 
@@ -75,31 +75,26 @@ The loop, end to end, once: crawl one site → run visibility prompts → create
 
 ## Deploy — public lead magnet (Phase B, chosen GTM motion: All-Vercel)
 
-The `/free-audit` lead magnet is built and works locally, but the in-memory guard
-stores live on `globalThis`, which is **per-instance** on Vercel. Before any public
-deploy:
+**Status (Session 32): shipped.** The lead magnet is live at
+https://www.queryclear.com/free-audit, served from the separate `queryclear`
+marketing repo (NOT this repo's `apps/web`, which stays as the reference
+implementation).
 
-- [ ] **MANDATORY: back `PublicAuditStore` with Upstash Redis.** Without a shared
-  store the $5/day cap is per-instance (so it won't actually hold globally) **and**
-  the email-unlock report cache misses across instances (unlock breaks). The
-  `PublicAuditStore` interface is the drop-in seam — implement a `RedisPublicAuditStore`
-  (atomic `INCR`/`EXPIRE` for rate limit + daily spend; `SET ... EX` for the report
-  cache). Add Upstash via Vercel Marketplace. **Do not expose the tool publicly until this is wired** — it's a money-bomb otherwise.
-- [ ] Real `LeadSink`: send the lead to a destination the founder will actually use —
-  Resend email to the founder, a CRM, or Vercel Postgres. (In-memory now loses leads on restart.)
-- [ ] Deploy: web app on Vercel; the stateless Python audit as a Vercel Python function
-  (Pro plan / Fluid Compute for the ~20s timeout) **or** run the FastAPI runtime on a
-  container and set `AGENT_RUNTIME_URL`. Set env: `OPENAI_API_KEY`, `PUBLIC_AUDIT_*`,
-  `AGENT_RUNTIME_URL`, `AUTH_SECRET`. Seed a public-org token budget in the runtime
-  (`PUBLIC_AUDIT_ORG_ID`) as the per-audit cost backstop.
-- [ ] Point the domain (queryclear.com or a subdomain) at Vercel; `/free-audit` is the
-  public URL. Confirm the operator dashboard/`/audit`/`/settings` stay auth-gated.
-- [ ] Add web unit tests (vitest) for the guard logic (rate limit + spend cap) — the
-  money path on the public surface currently has no automated test.
+- [x] **Back `PublicAuditStore` with Upstash Redis.** Done in the queryclear repo:
+  `lib/public-audit-redis.ts` (`RedisPublicAuditStore`, atomic `INCR`/`EXPIRE` rate
+  limit + `INCRBYFLOAT` daily spend + `SET ... EX` report cache), selected when
+  `KV_REST_API_*` env is present.
+- [x] Real `LeadSink`: Resend wired in queryclear `app/api/public/lead/route.ts`
+  (team notification + prospect report email).
+- [x] Deploy: queryclear site on Vercel + standalone Python audit function
+  (`services/agent-runtime/api/audit.py` → `agent-runtime-eta.vercel.app/api/audit`).
+- [x] Domain: live on www.queryclear.com; `/free-audit` linked from Header/Footer/nav.
+- [ ] Add guard tests for the money path (rate limit + spend cap + releaseSpend +
+  unlock flow) in the queryclear repo — only the email templates are tested today.
 
 ## Discovered tasks (add as you find them)
 
-- [ ] Wire `services/agent-runtime` to real Hermes installation and replace the in-memory placeholder.
+- [~] Replace the in-memory agent placeholder with a real substrate. **Hermes dropped (D14); build `ClaudeAgentRuntime` on the Claude Agent SDK** — `run()` = one SDK session with three LoopService tools (no publish tool), metered as one `agent_run` reservation, manual trigger via `POST /agents/{id}/run`. Later: scheduler, budget interrupt mid-run, DB-backed agent registry.
 - [~] Add a real DB-backed `BudgetRepository` that writes `model_usage` and updates organization usage counters. **Done:** `db.py` `SqlBudgetRepository` (SQLAlchemy Core; writes `model_usage` + increments `organizations.token_used_current_period` atomically; sets `app.current_org` for RLS on Postgres; tested offline on SQLite). `serve.py` uses it when `DATABASE_URL` is set. **Remaining:** validate against a real Postgres + apply the migration; persist `ContentPiece`/`Opportunity`/`AuditEvent` too.
 - [ ] Replace the development Auth.js credentials provider with production auth + Prisma-backed org/user/domain lookup.
 - [ ] Resolve `npm audit` moderate advisory from Next's nested `postcss@8.4.31` when a non-breaking patched Next/PostCSS path is available.
