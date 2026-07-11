@@ -8,7 +8,7 @@ QueryClear isn't a dashboard that tells you you're invisible in AI search — it
 
 ## How it works
 
-Every customer gets a **dedicated agent** built on [Hermes Agent](https://hermes-agent.org/) (Nous Research), with persistent memory of their brand, voice, and history. The reasoning brain is **model-agnostic** (OpenAI API by default, routed across providers per task). On top sits QueryClear's proprietary orchestration layer: multi-tenancy, billing, brand-safety guardrails, an autonomy slider, and deep integrations with GA4, Search Console, and your CRM.
+Every customer gets a **dedicated agent** built on the [Claude Agent SDK](https://docs.anthropic.com/en/api/agent-sdk/overview) (Anthropic), with persistent memory of their brand, voice, and history. The reasoning brain is **model-agnostic** (OpenAI API by default, routed across providers per task). On top sits QueryClear's proprietary orchestration layer: multi-tenancy, billing, brand-safety guardrails, an autonomy slider, and deep integrations with GA4, Search Console, and your CRM.
 
 ## For developers / Claude Code
 
@@ -55,7 +55,7 @@ npm run test:py
 queryclear/
 ├── apps/web            # Next.js dashboard + marketing + billing
 ├── apps/api            # Backend API
-├── services/agent-runtime   # Python — Hermes per-customer agents
+├── services/agent-runtime   # Python — per-customer agents (Claude Agent SDK)
 ├── packages/shared     # Shared types/contracts
 ├── packages/integrations    # CMS/GA4/GSC/CRM connectors
 ├── packages/db         # Prisma schema + RLS policies

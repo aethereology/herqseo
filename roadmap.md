@@ -17,7 +17,7 @@ Phased build plan mirroring the strategic brief. Each phase has a goal metric an
 
 ## Phase 1 — Core agent loop (Months 0–3)
 **Goal:** **5 customers actively publishing; ~$50K paid setup revenue.** Now visibility lift becomes a real (multi-domain, sampled) metric.
-- Generalize the M0 loop behind the `AgentRuntime` interface (Hermes as first impl) + model-agnostic router.
+- Generalize the M0 loop behind the `AgentRuntime` interface (Claude Agent SDK as first impl — D14) + model-agnostic router.
 - Thin end-to-end slice across early customers: ingest domain → audit across 5 engines → 10 explainable opportunities → generate answer-first content → **publish to WordPress** (live writes now permitted) → measure lift across the cohort.
 - Single CMS, single vertical (B2B SaaS), **Review mode only**, minimal dashboard.
 - Recruit 10 design partners at Growth tier (50% off setup for case-study rights).

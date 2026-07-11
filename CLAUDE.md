@@ -13,9 +13,9 @@ Full strategy lives in `docs/strategic-brief.md`. Read it once for context, but 
 
 ## Core architecture (non-negotiable foundations)
 
-1. **One dedicated agent instance per customer**, built on **Hermes Agent** (Nous Research, open-source, MIT, Python) — but accessed through an internal **`AgentRuntime` interface**, never directly. Hermes is the first implementation, not a permanent dependency; the product must not couple to it. Persistent memory per brand, self-improving skills, scheduled autonomous execution.
-2. **Model-agnostic reasoning brain** via API — default OpenAI API, routed across providers (OpenAI/Anthropic/Google/open models) per task for cost and quality. **Never** wire a consumer ChatGPT subscription as the brain — it has no programmatic API and violates resale terms.
-3. **QueryClear's proprietary orchestration layer** sits on top of Hermes: multi-tenancy, billing, brand-safety guardrails, the autonomy slider, and all integrations. **This layer is the defensible IP — invest the most engineering care here.**
+1. **One dedicated agent instance per customer**, built on the **Claude Agent SDK** (Python, `claude-agent-sdk`) — but accessed through an internal **`AgentRuntime` interface**, never directly. The SDK is the first implementation (D14 — it replaced the never-installed Hermes plan), not a permanent dependency; the product must not couple to it. Persistent memory per brand, scheduled autonomous execution.
+2. **Model-agnostic reasoning brain** via API — default OpenAI API, routed across providers (OpenAI/Anthropic/Google/open models) per task for cost and quality. The agent session itself is Anthropic-native by choice; task-level calls still route through the model router. **Never** wire a consumer ChatGPT subscription as the brain — it has no programmatic API and violates resale terms.
+3. **QueryClear's proprietary orchestration layer** sits on top of the agent substrate: multi-tenancy, billing, brand-safety guardrails, the autonomy slider, and all integrations. **This layer is the defensible IP — invest the most engineering care here.**
 4. **Token budgets are a first-class feature**, not an afterthought. Every customer has per-tier token caps enforced in code. Target 70–80% gross margin after API cost.
 
 See `docs/architecture.md` and `specs/` for the full design.
@@ -28,7 +28,7 @@ queryclear/
 │   ├── web/                 # Next.js — dashboard, marketing site, auth, billing UI
 │   └── api/                 # Backend API (Next.js route handlers or standalone Node service)
 ├── services/
-│   └── agent-runtime/       # Python — Hermes wrapper, per-customer agent orchestration
+│   └── agent-runtime/       # Python — Claude Agent SDK runtime, per-customer agent orchestration
 ├── packages/
 │   ├── shared/              # Shared TS types, contracts, constants
 │   ├── integrations/        # CMS / GA4 / GSC / CRM connectors
@@ -44,7 +44,7 @@ queryclear/
 
 - **Web/dashboard:** Next.js (App Router) + TypeScript + Tailwind + shadcn/ui
 - **API:** TypeScript (Node). Keep contracts in `packages/shared`.
-- **Agent runtime:** Python 3.11 + Hermes Agent. Exposes a clean internal API to the orchestration layer.
+- **Agent runtime:** Python 3.11 + Claude Agent SDK. Exposes a clean internal API to the orchestration layer.
 - **Database:** PostgreSQL with **row-level security** for multi-tenancy. Prisma for the TS side; SQLAlchemy or raw async for Python.
 - **Queue/scheduling:** a durable job system (Temporal preferred; BullMQ acceptable for MVP) for the monitor→analyze→publish loop.
 - **Auth:** Auth.js or Clerk.
@@ -60,7 +60,7 @@ If you deviate from these, record the decision and reason in `memory.md`.
 - **Never write to a customer's live site until the loop is proven.** M0 publishes to staging/draft or our own test sites. Live-site writes are a Phase 1 privilege, earned after M0.
 - **Multi-tenancy and token budgets are never "later."** Any data access path must be tenant-scoped from the first commit. Any model call must pass through the budget-metering wrapper.
 - **Guardrails before autonomy.** The autonomy slider defaults to "Review" mode. Do not enable auto-publish paths until brand-safety checks and approval gates exist.
-- **Don't couple to Hermes.** Feature and orchestration code depends on the `AgentRuntime` interface; framework-specific logic stays inside `HermesAgentRuntime`.
+- **Don't couple to the Claude Agent SDK.** Feature and orchestration code depends on the `AgentRuntime` interface; framework-specific logic stays inside `ClaudeAgentRuntime` (`claude_runtime.py`).
 - **Keep contracts typed and shared.** Cross-language boundaries (TS ↔ Python) get explicit, versioned schemas in `packages/shared`.
 - **Write tests for the money paths:** billing, token metering, tenant isolation. These failing silently is existential.
 

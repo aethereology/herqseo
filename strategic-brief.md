@@ -1,5 +1,7 @@
 # QueryClear strategic brief: build the operator, not another dashboard
 
+> **Note (2026-07-11):** the agent substrate changed after this brief was written — Hermes Agent was dropped (never installed) in favor of the **Claude Agent SDK** behind the same `AgentRuntime` interface (decision D14 in `memory.md`). References to Hermes below are historical; the strategy itself is unchanged.
+
 **The decision is to build QueryClear as a true autonomous SEO/AEO/GEO operator for mid-market B2B SaaS — priced as a $2,500–$15,000 one-time setup plus a $599–$3,499/month subscription, explicitly positioned as the agent that *executes* the work the entire $300M-funded GEO category only *measures*.** This wedge exists because every well-funded competitor — Searchable, Profound, Bluefish, Peec, AthenaHQ, Scrunch — sells dashboards and recommendations, while only Relixir and Daydream credibly execute, and neither targets the segment where willingness-to-pay is highest and product fit is cleanest: the 3–15-person marketing team at a Series A–C B2B SaaS company who can't afford a $15K Daydream retainer and won't survive on a $295 Profound dashboard. **The first 18 months are about owning that wedge, not chasing Searchable into the enterprise.** What follows is the case, the numbers, and the plan.
 
 ## The competitive picture is clear and the gap is real

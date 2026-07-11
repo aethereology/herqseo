@@ -5,7 +5,7 @@
 QueryClear is a multi-tenant SaaS where **each customer has a dedicated autonomous agent**. The system has three planes:
 
 1. **Control plane** (TypeScript) — the web dashboard, API, auth, billing, tenant management, and the human approval/guardrail surfaces.
-2. **Agent plane** (Python) — per-customer Hermes Agent instances that do the actual work: monitor, generate, publish, fix, outreach.
+2. **Agent plane** (Python) — per-customer agent instances (Claude Agent SDK behind `AgentRuntime`) that do the actual work: monitor, generate, publish, fix, outreach.
 3. **Data plane** (Postgres + object storage) — tenant-isolated relational data, plus blob storage for generated content and audit snapshots.
 
 ```
@@ -17,7 +17,7 @@ QueryClear is a multi-tenant SaaS where **each customer has a dedicated autonomo
                                 │ versioned contracts (packages/shared)
                 ┌───────────────▼─────────────────────────────┐
                 │               AGENT PLANE (Py)               │
-                │  Per-customer Hermes Agent instances         │
+                │  Per-customer agent instances (Claude SDK)   │
                 │  ┌────────────┐ ┌────────────┐ ┌──────────┐  │
                 │  │ Monitoring │ │  Content   │ │ Technical│  │
                 │  │   engine   │ │   engine   │ │   SEO    │  │
@@ -35,21 +35,20 @@ QueryClear is a multi-tenant SaaS where **each customer has a dedicated autonomo
    Gemini, Perplexity…)                                 Google / open models)
 ```
 
-## The per-customer agent (Hermes)
+## The per-customer agent (Claude Agent SDK)
 
-Built on **Hermes Agent** (Nous Research, open-source, MIT, Python 3.11). Why Hermes:
+Built on the **Claude Agent SDK** (Anthropic, Python, `claude-agent-sdk`). Chosen in Session 32 (decision **D14** in `memory.md`) after dropping the original Hermes plan — Hermes was never installed, so the swap cost nothing. Why the SDK:
 
-- **Persistent cross-session memory** — the agent retains each brand's site map, voice profile, past actions, and what moved the needle. A stateless chatbot wrapper cannot do this.
-- **Self-improving skills** — it builds reusable optimization playbooks from experience.
-- **Scheduled autonomous execution** — native cron-style scheduling is exactly the monitor→analyze→act loop we need.
-- **40+ built-in tools** — web search, browser automation, code execution out of the box.
-- **Runs anywhere cheaply** — a $5 VPS or idle-cheap serverless (Modal/Daytona), so dormant agents cost almost nothing.
+- **A real agentic loop today** — sessions with tool use, `max_turns` bounds, and per-session usage reporting that plugs straight into our token metering.
+- **In-process custom tools** — the agent's tool surface is exactly the three `LoopService` wrappers we define (no publish tool), which is the guardrail model we want.
+- **Ships a bundled CLI** — `pip install` is the whole footprint; no separate Node install on the runtime host.
+- **Persistent memory per brand** stays in our own `AgentRuntime` store (in-memory today, DB later) — deliberately not coupled to SDK session files.
 
 **Isolation model (decide in Phase 1, see memory.md Q4):** container-per-customer gives the cleanest blast radius and is preferred once past design partners; a shared runtime with strict tenant context is acceptable for the earliest MVP. Whatever is chosen, an agent must never read another tenant's data or memory.
 
-### Hermes sits behind an `AgentRuntime` interface (the product is not coupled to it)
+### The SDK sits behind an `AgentRuntime` interface (the product is not coupled to it)
 
-Hermes is the **starting** agent framework, not a permanent dependency. The product talks to an internal **`AgentRuntime` interface**, and the Hermes wrapper is one implementation of it. This is the same philosophy we apply to the model layer — we made the *model* swappable behind a router, so we make the *agent framework* swappable behind an interface, for the identical reason: it's a young open-source project and we shouldn't bet the whole product on its memory model or scheduler before we've hit real multi-tenant load. If Hermes doesn't hold up, we swap the implementation, not the product.
+The Claude Agent SDK is the **first** agent substrate, not a permanent dependency. The product talks to an internal **`AgentRuntime` interface**, and `ClaudeAgentRuntime` is one implementation of it. This is the same philosophy we apply to the model layer — we made the *model* swappable behind a router, so we make the *agent framework* swappable behind an interface. If the SDK doesn't hold up, we swap the implementation, not the product.
 
 ```
 interface AgentRuntime {
@@ -62,7 +61,7 @@ interface AgentRuntime {
 }
 ```
 
-Feature code depends only on `AgentRuntime`. `HermesAgentRuntime` is the first concrete implementation. Keep framework-specific assumptions out of the orchestration layer. See `specs/hermes-agent-layer.md`.
+Feature code depends only on `AgentRuntime`. `ClaudeAgentRuntime` (`claude_runtime.py`) is the first concrete implementation; the agent session is Anthropic-native by choice, while task-level model calls inside the loop still route through the model router below. Keep framework-specific assumptions out of the orchestration layer. See `agent-runtime-layer.md`.
 
 ## The model-agnostic brain
 
@@ -92,7 +91,7 @@ This is where engineering care concentrates. It owns:
 - **Integrations** — CMS, GA4, GSC, CRM connectors (`packages/integrations`).
 - **Job orchestration** — durable scheduling of the monitor→analyze→act loop (Temporal preferred).
 
-Hermes is the commodity substrate; this layer is the product.
+The agent SDK is the commodity substrate; this layer is the product.
 
 ## Data flow: the core loop
 

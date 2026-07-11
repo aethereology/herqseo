@@ -169,7 +169,30 @@ def build_service() -> LoopService:
     )
 
 
+def build_agent_runtime(service: LoopService):  # type: ignore[no-untyped-def]
+    """ClaudeAgentRuntime from env. Without ANTHROPIC_API_KEY (or the ``agent``
+    extra installed) agent runs use the offline demo session, mirroring the
+    demo provider/publisher pattern above."""
+    from .claude_runtime import ClaudeAgentRuntime, demo_session_runner
+
+    session_runner = None if os.environ.get("ANTHROPIC_API_KEY") else demo_session_runner
+    return ClaudeAgentRuntime(
+        service,
+        service.meter,
+        model=os.environ.get("QUERYCLEAR_AGENT_MODEL", "claude-sonnet-4-6"),
+        max_turns=int(os.environ.get("QUERYCLEAR_AGENT_MAX_TURNS", "12")),
+        reserve_input_tokens=int(
+            os.environ.get("QUERYCLEAR_AGENT_RESERVE_INPUT_TOKENS", "150000")
+        ),
+        reserve_output_tokens=int(
+            os.environ.get("QUERYCLEAR_AGENT_RESERVE_OUTPUT_TOKENS", "50000")
+        ),
+        session_runner=session_runner,
+    )
+
+
 def build_app():  # type: ignore[no-untyped-def]
     from .app import create_app
 
-    return create_app(build_service())
+    service = build_service()
+    return create_app(service, agent_runtime=build_agent_runtime(service))

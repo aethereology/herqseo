@@ -16,12 +16,14 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from .audit import AuditReport
+from .claude_runtime import ClaudeAgentRuntime
 from .content import ApprovalRequired, ContentPiece
 from .credentials import WordPressCredentials
+from .metering import BudgetExceeded
 from .monitoring import Opportunity
 from .publishing import PreflightError, WordPressPublisher
 from .repositories import CmsCredentialRepository
-from .runtime import AgentHandle, AgentNotFound, AgentRuntime, AgentTask, HermesAgentRuntime, RunResult
+from .runtime import AgentHandle, AgentNotFound, AgentRuntime, AgentTask, RunResult
 from .service import LoopError, LoopService
 
 
@@ -195,7 +197,7 @@ def create_app(
     cms_credentials: CmsCredentialRepository | None = None,
 ) -> FastAPI:
     app = FastAPI(title="QueryClear Agent Runtime (M0)")
-    agents = agent_runtime or HermesAgentRuntime()
+    agents = agent_runtime or ClaudeAgentRuntime(service, service.meter)
     credential_store = cms_credentials or service.cms_credentials
 
     @app.post("/runs")
@@ -359,6 +361,8 @@ def create_app(
             )
         except AgentNotFound as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except BudgetExceeded as exc:
+            raise HTTPException(status_code=402, detail=str(exc)) from exc
         return _run_result_json(result)
 
     @app.get("/agents/{agent_id}/results")

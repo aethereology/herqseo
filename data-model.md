@@ -26,7 +26,7 @@ For the **Agency Partner** tier, an Organization can be an agency that owns many
 `id, org_id, url, cms_type, cms_credentials_ref, brand_voice_profile_ref, autonomy_mode, status, created_at`
 
 ### AgentInstance
-`id, domain_id, hermes_instance_ref, memory_store_ref, status (provisioning|active|paused), last_run_at`
+`id, domain_id, agent_instance_ref, memory_store_ref, status (provisioning|active|paused), last_run_at`
 - One agent per domain. `memory_store_ref` points to that agent's persistent memory.
 
 ### CrawlSnapshot
@@ -71,4 +71,4 @@ For the **Agency Partner** tier, an Organization can be an agency that owns many
 
 ## Open modeling questions
 - Time-series volume for `VisibilityCheck` and `ModelUsage` may warrant partitioning or a TSDB later.
-- Agent memory storage format is owned by the Hermes layer (`specs/hermes-agent-layer.md`); this DB stores only the reference + metadata.
+- Agent memory storage format is owned by the agent runtime layer (`agent-runtime-layer.md`); this DB stores only the reference + metadata.

@@ -112,18 +112,26 @@ from .runtime import (
     AgentRuntime,
     AgentStatus,
     AgentTask,
-    HermesAgentRuntime,
     RunResult,
+)
+from .claude_runtime import (
+    AGENT_TOOL_NAMES,
+    AgentRunContext,
+    ClaudeAgentRuntime,
+    demo_session_runner,
 )
 
 __all__ = [
+    "AGENT_TOOL_NAMES",
     "ANTHROPIC_PRICING",
     "AI_ENGINES",
     "AgentHandle",
     "AgentNotFound",
+    "AgentRunContext",
     "AgentRuntime",
     "AgentStatus",
     "AgentTask",
+    "ClaudeAgentRuntime",
     "AnthropicProvider",
     "ApprovalRequired",
     "AuditReport",
@@ -143,7 +151,6 @@ __all__ = [
     "EngineAdapter",
     "EngineProbe",
     "Finding",
-    "HermesAgentRuntime",
     "HttpPageFetcher",
     "InMemoryAuditEventRepository",
     "InMemoryBudgetRepository",

@@ -4,9 +4,9 @@ These are committed defaults. Deviations are allowed but must be recorded in `me
 
 ## Languages & runtimes
 - **TypeScript / Node 20+** — control plane (web, API, integrations contracts).
-- **Python 3.11** — agent runtime (Hermes is Python-native).
+- **Python 3.11** — agent runtime (the Claude Agent SDK is Python-native).
 
-Polyglot is deliberate: Hermes and the AI/agent tooling live best in Python; the SaaS app, billing, and multi-tenant API are faster and safer in typed TypeScript. The boundary is an explicit, versioned contract in `packages/shared`.
+Polyglot is deliberate: the agent SDK and AI tooling live best in Python; the SaaS app, billing, and multi-tenant API are faster and safer in typed TypeScript. The boundary is an explicit, versioned contract in `packages/shared`.
 
 ## Frontend
 - **Next.js (App Router)** + **TypeScript**
@@ -18,7 +18,7 @@ Polyglot is deliberate: Hermes and the AI/agent tooling live best in Python; the
 - Validate all I/O with a schema library (e.g. Zod); share schemas via `packages/shared`.
 
 ## Agent runtime
-- **Hermes Agent** (Nous Research) wrapped in a thin service that the control plane calls over the versioned contract.
+- **Claude Agent SDK** (Anthropic) behind the `AgentRuntime` interface, wrapped in a thin service the control plane calls over the versioned contract (D14 — replaced the never-installed Hermes plan).
 - Python deps managed with **uv**.
 - The model-agnostic **router** + **token-metering wrapper** live here; no feature code calls a provider SDK directly.
 

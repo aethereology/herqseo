@@ -23,6 +23,10 @@ crawl = ["httpx>=0.27"]
 api = ["fastapi>=0.110", "uvicorn>=0.29", "python-dotenv>=1.0"]
 # SQLAlchemy persistence (db.py). psycopg drives Postgres; SQLite needs no driver.
 db = ["sqlalchemy>=2.0", "psycopg[binary]>=3.1"]
+# Claude Agent SDK backs ClaudeAgentRuntime (claude_runtime.py), lazily imported
+# so core + CI never need it. Deliberately NOT in requirements.txt (the Vercel
+# audit function manifest) — agent runs happen on the uvicorn host only.
+agent = ["claude-agent-sdk>=0.2"]
 
 [build-system]
 requires = ["setuptools>=69"]
