@@ -18,3 +18,4 @@ __pycache__/
 # Python editable-install build artifact
 *.egg-info/
 .vercel
+.playwright-mcp/
