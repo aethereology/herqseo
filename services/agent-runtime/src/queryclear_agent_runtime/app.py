@@ -8,11 +8,14 @@ imported by the package or the test suite, so CI stays offline. Run with::
 """
 from __future__ import annotations
 
+import hmac
+import os
 from collections.abc import Callable
 from typing import Any
 from urllib.parse import urlparse
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from .audit import AuditReport
@@ -25,6 +28,9 @@ from .publishing import PreflightError, WordPressPublisher
 from .repositories import CmsCredentialRepository
 from .runtime import AgentHandle, AgentNotFound, AgentRuntime, AgentTask, RunResult
 from .service import LoopError, LoopService
+
+
+_RUNTIME_KEY_HEADER = "x-queryclear-runtime-key"
 
 
 class RunRequest(BaseModel):
@@ -94,6 +100,13 @@ def _brand_from_url(domain_url: str) -> str:
 
 
 def _report_json(report: AuditReport) -> dict[str, Any]:
+    measured_checks = sum(1 for check in report.checks if check.measured)
+    if measured_checks == 0:
+        visibility_method = "modeled-scenario"
+    elif measured_checks == len(report.checks):
+        visibility_method = "live-engine"
+    else:
+        visibility_method = "mixed"
     return {
         "domain_url": report.domain_url,
         "page_title": report.page_title,
@@ -137,6 +150,12 @@ def _report_json(report: AuditReport) -> dict[str, Any]:
         ],
         "sample_draft": _piece_json(report.sample_draft) if report.sample_draft else None,
         "detected_voice": report.detected_voice,
+        "methodology": {
+            "version": "free-readiness-preview-v1",
+            "crawled_page_limit": 5,
+            "visibility_method": visibility_method,
+            "samples_per_query": max((check.samples for check in report.checks), default=0),
+        },
     }
 
 
@@ -195,10 +214,36 @@ def create_app(
     agent_runtime: AgentRuntime | None = None,
     wordpress_publisher_factory: Callable[..., WordPressPublisher] = WordPressPublisher,
     cms_credentials: CmsCredentialRepository | None = None,
+    shared_secret: str | None = None,
 ) -> FastAPI:
     app = FastAPI(title="QueryClear Agent Runtime (M0)")
     agents = agent_runtime or ClaudeAgentRuntime(service, service.meter)
     credential_store = cms_credentials or service.cms_credentials
+    expected_key = (
+        shared_secret
+        if shared_secret is not None
+        else os.environ.get("AGENT_RUNTIME_SHARED_SECRET", "")
+    ).strip()
+
+    @app.middleware("http")
+    async def require_runtime_auth(request: Request, call_next):  # type: ignore[no-untyped-def]
+        if len(expected_key) < 32:
+            return JSONResponse(
+                status_code=503,
+                content={"detail": "Agent runtime authentication is not configured."},
+                headers={"cache-control": "no-store", "x-content-type-options": "nosniff"},
+            )
+        supplied_key = request.headers.get(_RUNTIME_KEY_HEADER, "")
+        if not hmac.compare_digest(supplied_key, expected_key):
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Unauthorized."},
+                headers={"cache-control": "no-store", "x-content-type-options": "nosniff"},
+            )
+        response = await call_next(request)
+        response.headers["cache-control"] = "no-store"
+        response.headers["x-content-type-options"] = "nosniff"
+        return response
 
     @app.post("/runs")
     def create_run(req: RunRequest) -> dict[str, Any]:

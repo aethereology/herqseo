@@ -3,6 +3,7 @@
 // route handlers do, injecting tenant context.
 
 const BASE_URL = process.env.AGENT_RUNTIME_URL ?? "http://localhost:8080";
+const SHARED_SECRET = process.env.AGENT_RUNTIME_SHARED_SECRET?.trim() ?? "";
 
 export interface RuntimeOpportunity {
   id: string;
@@ -120,18 +121,24 @@ export class AgentRuntimeError extends Error {
 }
 
 async function call<T>(path: string, init: RequestInit): Promise<T> {
+  if (SHARED_SECRET.length < 32) {
+    throw new AgentRuntimeError("Agent runtime authentication is not configured.", 503);
+  }
+
   let response: Response;
   try {
     response = await fetch(`${BASE_URL}${path}`, {
       ...init,
-      headers: { "content-type": "application/json", ...init.headers },
-      cache: "no-store"
+      headers: {
+        "content-type": "application/json",
+        ...init.headers,
+        "x-queryclear-runtime-key": SHARED_SECRET
+      },
+      cache: "no-store",
+      redirect: "error"
     });
   } catch {
-    throw new AgentRuntimeError(
-      `Agent runtime unreachable at ${BASE_URL}. Start services/agent-runtime.`,
-      503
-    );
+    throw new AgentRuntimeError("Agent runtime is unavailable.", 503);
   }
 
   if (!response.ok) {

@@ -99,6 +99,14 @@ class ModelRoutingPolicy:
 
 DEFAULT_MODEL_ROUTING_POLICY = ModelRoutingPolicy()
 
+# The public preview can make at most four sequential model-call stages (prompt
+# generation, concurrent visibility probes, voice derivation, sample draft).
+# Five seconds with SDK retries disabled keeps those stages below 20 seconds;
+# together with the 15-second crawl budget, the upstream completes or fails
+# before the marketing app's 45-second abort window.
+_DEFAULT_PROVIDER_TIMEOUT_SECONDS = 5.0
+_DEFAULT_PROVIDER_MAX_RETRIES = 0
+
 
 def resolve_model_route(
     task_class: str,
@@ -135,10 +143,18 @@ class OpenAIProvider:
         api_key: str | None = None,
         client: object | None = None,
         pricing: dict[str, ModelPricing] | None = None,
+        timeout: float = _DEFAULT_PROVIDER_TIMEOUT_SECONDS,
+        max_retries: int = _DEFAULT_PROVIDER_MAX_RETRIES,
     ) -> None:
+        if timeout <= 0:
+            raise ValueError("timeout must be positive")
+        if max_retries < 0:
+            raise ValueError("max_retries cannot be negative")
         self._api_key = api_key
         self._client = client
         self._pricing = pricing or OPENAI_PRICING
+        self._timeout = timeout
+        self._max_retries = max_retries
 
     def complete(
         self, request: ModelRequest, prompt: str, *, system: str | None = None
@@ -179,7 +195,11 @@ class OpenAIProvider:
         if self._client is None:
             from openai import OpenAI  # lazy: optional dependency
 
-            self._client = OpenAI(api_key=self._api_key)
+            self._client = OpenAI(
+                api_key=self._api_key,
+                timeout=self._timeout,
+                max_retries=self._max_retries,
+            )
         return self._client
 
 
@@ -198,10 +218,18 @@ class AnthropicProvider:
         api_key: str | None = None,
         client: object | None = None,
         pricing: dict[str, ModelPricing] | None = None,
+        timeout: float = _DEFAULT_PROVIDER_TIMEOUT_SECONDS,
+        max_retries: int = _DEFAULT_PROVIDER_MAX_RETRIES,
     ) -> None:
+        if timeout <= 0:
+            raise ValueError("timeout must be positive")
+        if max_retries < 0:
+            raise ValueError("max_retries cannot be negative")
         self._api_key = api_key
         self._client = client
         self._pricing = pricing or ANTHROPIC_PRICING
+        self._timeout = timeout
+        self._max_retries = max_retries
 
     def complete(
         self, request: ModelRequest, prompt: str, *, system: str | None = None
@@ -241,7 +269,11 @@ class AnthropicProvider:
         if self._client is None:
             from anthropic import Anthropic  # lazy: optional dependency
 
-            self._client = Anthropic(api_key=self._api_key)
+            self._client = Anthropic(
+                api_key=self._api_key,
+                timeout=self._timeout,
+                max_retries=self._max_retries,
+            )
         return self._client
 
 

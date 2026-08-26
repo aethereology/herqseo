@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from time import monotonic
 
 from .audit import AuditReport
 from .content import (
@@ -35,6 +36,9 @@ from .repositories import (
     VoiceProfileRepository,
 )
 from .technical import audit_site_resources, audit_snapshot
+
+
+_PUBLIC_AUDIT_CRAWL_BUDGET_SECONDS = 15.0
 
 
 class LoopError(RuntimeError):
@@ -170,10 +174,18 @@ class LoopService:
     ) -> AuditReport:
         """Read-only audit: crawl → technical findings + invisible-query check +
         one sample draft. No state stored, no publish — the sales deliverable."""
-        snapshot = crawl_site(self.fetcher, domain_url, seed_paths)
+        crawl_deadline = monotonic() + _PUBLIC_AUDIT_CRAWL_BUDGET_SECONDS
+        snapshot = crawl_site(
+            self.fetcher, domain_url, seed_paths, deadline=crawl_deadline
+        )
         findings = audit_snapshot(snapshot)
         findings.extend(
-            audit_site_resources(check_site_resources(self.fetcher, domain_url), domain_url)
+            audit_site_resources(
+                check_site_resources(
+                    self.fetcher, domain_url, deadline=crawl_deadline
+                ),
+                domain_url,
+            )
         )
         # The audit probes ONE representative engine, not the full set: today every
         # engine is the same model proxy (see monitoring.py), so probing five is 5x
@@ -202,6 +214,10 @@ class LoopService:
                 self.meter, self.provider, monitoring.opportunities[0], voice,
                 org_id=org_id, domain_id=domain_id,
                 routing_policy=self.routing_policy,
+                source_context="\n\n".join(
+                    f"URL: {page.url}\nTitle: {page.title}\nCopy: {page.text}"
+                    for page in snapshot.pages
+                ),
             )
         recommendations = build_recommendations(findings, list(monitoring.checks))
         return AuditReport(

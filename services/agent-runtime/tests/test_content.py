@@ -107,6 +107,24 @@ class GenerateContentDraftTest(unittest.TestCase):
                 org_id="org_1", domain_id="domain_1",
             )
 
+    def test_grounded_draft_uses_public_source_copy_and_requires_placeholders_for_missing_facts(self) -> None:
+        meter, _ = _meter()
+        provider = _RecordingProvider("body")
+
+        generate_content_draft(
+            meter,
+            provider,
+            _opportunity(),
+            _voice(),
+            org_id="org_1",
+            domain_id="domain_1",
+            source_context="Acme serves finance teams in Jacksonville.",
+        )
+
+        self.assertIn("Acme serves finance teams", provider.prompts[0])
+        self.assertIn("[BUSINESS INPUT REQUIRED]", provider.prompts[0])
+        self.assertIn("untrusted reference data", provider.systems[0])
+
     def test_uses_routing_policy_for_content_generation(self) -> None:
         meter, _ = _meter()
         provider = _RecordingProvider("body")

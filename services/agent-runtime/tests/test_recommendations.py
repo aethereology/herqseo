@@ -59,7 +59,9 @@ class BuildRecommendationsTest(unittest.TestCase):
         self.assertEqual(recs[0].kind, "content")
         self.assertEqual(recs[0].provenance, "estimated")
         self.assertIn("best invoice tool", recs[0].title)
-        self.assertIn("chatgpt", recs[0].evidence)
+        self.assertEqual(recs[0].evidence, "modeled-scenario:best invoice tool")
+        self.assertIn("not a live engine measurement", recs[0].rationale)
+        self.assertNotIn("chatgpt", recs[0].rationale.lower())
 
     def test_strong_visibility_is_not_a_recommendation(self) -> None:
         recs = build_recommendations([], [_check("we are cited", 3, 3)], threshold=0.5)
@@ -71,7 +73,7 @@ class BuildRecommendationsTest(unittest.TestCase):
             [_check("partial", 1, 4), _check("zero", 0, 4)],
             threshold=0.9,
         )
-        self.assertEqual(recs[0].title, "Win AI visibility for: zero")
+        self.assertEqual(recs[0].title, "Review answer coverage for: zero")
 
     def test_measured_technical_outranks_estimated_content_at_same_priority(self) -> None:
         # high-severity technical and a zero-citation gap are both priority 1;
@@ -86,6 +88,7 @@ class BuildRecommendationsTest(unittest.TestCase):
     def test_measured_check_keeps_measured_provenance(self) -> None:
         recs = build_recommendations([], [_check("real gap", 0, 3, measured=True)])
         self.assertEqual(recs[0].provenance, "measured")
+        self.assertIn("chatgpt", recs[0].rationale)
 
     def test_dedupes_content_recs_by_query_across_engines(self) -> None:
         # The same buyer-intent query probed on two engines is ONE action

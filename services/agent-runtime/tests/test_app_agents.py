@@ -29,6 +29,9 @@ from queryclear_agent_runtime import (  # noqa: E402
 from queryclear_agent_runtime.app import create_app  # noqa: E402
 
 
+_SECRET = "test-runtime-secret-at-least-32-characters"
+
+
 class _FakeFetcher:
     def fetch(self, url: str) -> str:
         return "<html><head><title>Acme</title></head><body><p>Acme copy.</p></body></html>"
@@ -59,7 +62,12 @@ class _FakePreflightPublisher:
             raise PreflightError("switch to pretty permalinks")
 
 
-def _client(budget_tokens: int = 1_000_000) -> TestClient:
+def _client(
+    budget_tokens: int = 1_000_000,
+    *,
+    shared_secret: str = _SECRET,
+    authenticate: bool = True,
+) -> TestClient:
     repo = InMemoryBudgetRepository({"org_1": TokenBudget("org_1", budget_tokens)})
     service = LoopService(
         meter=TokenMeter(repo),
@@ -71,7 +79,11 @@ def _client(budget_tokens: int = 1_000_000) -> TestClient:
     # The offline demo session stands in for the Claude Agent SDK; it replays
     # the canonical check-history → run-loop → write-report script.
     runtime = ClaudeAgentRuntime(service, service.meter, session_runner=demo_session_runner)
-    return TestClient(create_app(service, agent_runtime=runtime))
+    headers = {"x-queryclear-runtime-key": shared_secret} if authenticate else None
+    return TestClient(
+        create_app(service, agent_runtime=runtime, shared_secret=shared_secret),
+        headers=headers,
+    )
 
 
 def _client_with_wp_factory(factory) -> TestClient:
@@ -90,11 +102,25 @@ def _client_with_wp_factory(factory) -> TestClient:
             service,
             wordpress_publisher_factory=factory,
             cms_credentials=cms_credentials,
-        )
+            shared_secret=_SECRET,
+        ),
+        headers={"x-queryclear-runtime-key": _SECRET},
     )
 
 
 class AgentApiTest(unittest.TestCase):
+    def test_runtime_rejects_missing_authentication(self) -> None:
+        response = _client(authenticate=False).get("/agents")
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json(), {"detail": "Unauthorized."})
+
+    def test_runtime_fails_closed_when_authentication_is_not_configured(self) -> None:
+        response = _client(shared_secret="", authenticate=False).get("/agents")
+
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("not configured", response.json()["detail"])
+
     def test_provision_run_results_and_status(self) -> None:
         client = _client()
 

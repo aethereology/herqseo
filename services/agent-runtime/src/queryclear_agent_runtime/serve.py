@@ -1,14 +1,14 @@
 """Runnable entrypoint that builds a LoopService from env and serves the FastAPI
 adapter. Requires the ``api`` extra. Not imported by the package or tests.
 
-    pip install -e ".[api]"            # offline demo mode (no keys needed)
+    pip install -e ".[api]"            # API server dependencies
     pip install -e ".[api,openai,crawl]"   # real OpenAI + HTTP crawl
     uvicorn queryclear_agent_runtime.serve:build_app --factory --port 8080
 
-Demo mode (no OPENAI_API_KEY / WORDPRESS_BASE_URL) uses offline fakes so the M0
-loop is clickable end to end without credentials — useful as a sales demo. With
-the env vars set, it wires the real OpenAI provider, HTTP crawler, and WordPress
-(draft-only) publisher.
+Offline demo mode is available only when explicitly enabled in a non-production
+environment. Production and the public audit endpoint fail closed unless a real
+model provider is configured. With the relevant env vars set, this wires a real
+model provider, HTTP crawler, and an optional WordPress draft-only publisher.
 """
 from __future__ import annotations
 
@@ -67,6 +67,13 @@ class _DemoPublisher:
         )
 
 
+class _UnavailablePublisher:
+    """Fail-closed publisher used when audit-only deployments omit a CMS."""
+
+    def publish(self, *, title: str, body: str, status: str = "draft") -> PublishResult:
+        raise RuntimeError("Publishing is not configured for this deployment.")
+
+
 def _load_env() -> None:
     # Load services/agent-runtime/.env (and parent .env) if python-dotenv is
     # installed. Real secrets live here, never committed (.env is gitignored).
@@ -77,8 +84,25 @@ def _load_env() -> None:
     load_dotenv(find_dotenv(usecwd=True))
 
 
-def build_service() -> LoopService:
+def _is_production() -> bool:
+    return (
+        os.environ.get("APP_ENV", "").strip().lower() == "production"
+        or os.environ.get("VERCEL_ENV", "").strip().lower() == "production"
+    )
+
+
+def _demo_allowed(explicit: bool | None = None) -> bool:
+    requested = (
+        explicit
+        if explicit is not None
+        else os.environ.get("QUERYCLEAR_ALLOW_DEMO", "").strip().lower() == "true"
+    )
+    return bool(requested) and not _is_production()
+
+
+def build_service(*, allow_demo: bool | None = None) -> LoopService:
     _load_env()
+    demo_allowed = _demo_allowed(allow_demo)
     org_id = os.environ.get("QUERYCLEAR_DEV_ORG_ID", "org_dev_queryclear")
     budget = int(os.environ.get("QUERYCLEAR_TOKEN_BUDGET", "1000000"))
 
@@ -138,9 +162,13 @@ def build_service() -> LoopService:
             backends["anthropic"] = AnthropicProvider(api_key=anthropic_key)
         provider: object = RoutingProvider(backends)  # type: ignore[arg-type]
         fetcher: object = HttpPageFetcher()
-    else:
+    elif demo_allowed:
         provider = _DemoProvider()
         fetcher = _DemoFetcher()
+    else:
+        raise RuntimeError(
+            "A real model provider is required; offline demo mode is disabled."
+        )
 
     wp_base = os.environ.get("WORDPRESS_BASE_URL")
     if wp_base:
@@ -151,8 +179,10 @@ def build_service() -> LoopService:
             username=os.environ["WORDPRESS_USERNAME"],
             app_password=os.environ["WORDPRESS_APP_PASSWORD"],
         )
-    else:
+    elif demo_allowed:
         publisher = _DemoPublisher()
+    else:
+        publisher = _UnavailablePublisher()
 
     brand = os.environ.get("QUERYCLEAR_DEV_ORG_NAME", "QueryClear Demo")
     voice = BrandVoice(brand=brand, guidelines="Plain, direct, founder-led. No hype. Answer-first.")
@@ -169,13 +199,20 @@ def build_service() -> LoopService:
     )
 
 
-def build_agent_runtime(service: LoopService):  # type: ignore[no-untyped-def]
-    """ClaudeAgentRuntime from env. Without ANTHROPIC_API_KEY (or the ``agent``
-    extra installed) agent runs use the offline demo session, mirroring the
-    demo provider/publisher pattern above."""
+def build_agent_runtime(
+    service: LoopService, *, allow_demo: bool | None = None
+):  # type: ignore[no-untyped-def]
+    """Build the agent runtime, allowing a fake session only by local opt-in."""
     from .claude_runtime import ClaudeAgentRuntime, demo_session_runner
 
-    session_runner = None if os.environ.get("ANTHROPIC_API_KEY") else demo_session_runner
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        session_runner = None
+    elif _demo_allowed(allow_demo):
+        session_runner = demo_session_runner
+    else:
+        raise RuntimeError(
+            "ANTHROPIC_API_KEY is required for agent sessions; demo mode is disabled."
+        )
     return ClaudeAgentRuntime(
         service,
         service.meter,
@@ -194,5 +231,9 @@ def build_agent_runtime(service: LoopService):  # type: ignore[no-untyped-def]
 def build_app():  # type: ignore[no-untyped-def]
     from .app import create_app
 
-    service = build_service()
-    return create_app(service, agent_runtime=build_agent_runtime(service))
+    demo_allowed = _demo_allowed()
+    service = build_service(allow_demo=demo_allowed)
+    return create_app(
+        service,
+        agent_runtime=build_agent_runtime(service, allow_demo=demo_allowed),
+    )

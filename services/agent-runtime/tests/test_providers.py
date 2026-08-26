@@ -4,6 +4,8 @@ import sys
 import unittest
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -136,6 +138,16 @@ class ModelRoutingPolicyTest(unittest.TestCase):
 
 
 class OpenAIProviderTest(unittest.TestCase):
+    def test_sdk_client_disables_retries_and_uses_five_second_timeout(self) -> None:
+        constructor = Mock(return_value=object())
+        with patch.dict(sys.modules, {"openai": SimpleNamespace(OpenAI=constructor)}):
+            client = OpenAIProvider(api_key="test-key")._get_client()
+
+        self.assertIsNotNone(client)
+        constructor.assert_called_once_with(
+            api_key="test-key", timeout=5.0, max_retries=0
+        )
+
     def test_complete_maps_usage_and_cost(self) -> None:
         fake = _FakeOpenAI(_FakeResponse("hello", input_tokens=120, output_tokens=80))
         provider = OpenAIProvider(client=fake)
@@ -218,6 +230,18 @@ class AnthropicProviderTest(unittest.TestCase):
     def test_rejects_non_anthropic_provider_without_client(self) -> None:
         with self.assertRaises(UnsupportedModel):
             AnthropicProvider().complete(_request(provider="openai", model="gpt-4.1"), "x")
+
+    def test_sdk_client_disables_retries_and_uses_five_second_timeout(self) -> None:
+        constructor = Mock(return_value=object())
+        with patch.dict(
+            sys.modules, {"anthropic": SimpleNamespace(Anthropic=constructor)}
+        ):
+            client = AnthropicProvider(api_key="test-key")._get_client()
+
+        self.assertIsNotNone(client)
+        constructor.assert_called_once_with(
+            api_key="test-key", timeout=5.0, max_retries=0
+        )
 
 
 class RoutingProviderTest(unittest.TestCase):

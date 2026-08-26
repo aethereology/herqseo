@@ -89,8 +89,19 @@ implementation).
 - [x] Deploy: queryclear site on Vercel + standalone Python audit function
   (`services/agent-runtime/api/audit.py` → `agent-runtime-eta.vercel.app/api/audit`).
 - [x] Domain: live on www.queryclear.com; `/free-audit` linked from Header/Footer/nav.
-- [ ] Add guard tests for the money path (rate limit + spend cap + releaseSpend +
-  unlock flow) in the queryclear repo — only the email templates are tested today.
+- [x] Add guard tests and harden the public money/security path. The queryclear
+  repo now tests rate limits, spend reservations/releases, cache TTL, unlock,
+  URL rejection, production Redis fail-closed behavior, runtime response bounds,
+  and measured-vs-modeled summaries. This runtime independently tests shared-key
+  auth, request tenancy/cost pinning, SSRF/DNS/redirect defenses, methodology,
+  grounding, and truthful recommendation language (Session 34).
+- [ ] **Production cutover (Session 34 hardening):** configure the same random
+  32+ character `AGENT_RUNTIME_SHARED_SECRET` on queryclear and the audit runtime;
+  set `QUERYCLEAR_PUBLIC_DOMAIN_ID`; confirm Redis/budget env; deploy marketing
+  first and runtime second; smoke-test wrong-key rejection, private-target
+  rejection, truthful modeled labels, email unlock, and <=24-hour transient TTL.
+  Remove only `pa:report:*`/`pa:viewed:*` cache keys or let them expire — never
+  flush the shared Redis database.
 
 ## Discovered tasks (add as you find them)
 

@@ -4,6 +4,7 @@ import sys
 import unittest
 from decimal import Decimal
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -16,6 +17,9 @@ from queryclear_agent_runtime import (  # noqa: E402
     TokenBudget,
     TokenMeter,
 )
+from queryclear_agent_runtime import crawl as crawl_module  # noqa: E402
+from queryclear_agent_runtime import providers as providers_module  # noqa: E402
+from queryclear_agent_runtime import service as service_module  # noqa: E402
 
 # Homepage with a deliberately duplicated title -> a technical finding.
 _HTML = (
@@ -49,6 +53,40 @@ def _service() -> LoopService:
 
 
 class AuditTest(unittest.TestCase):
+    def test_network_windows_fit_below_the_marketing_abort(self) -> None:
+        worst_case_seconds = (
+            service_module._PUBLIC_AUDIT_CRAWL_BUDGET_SECONDS
+            + 4 * providers_module._DEFAULT_PROVIDER_TIMEOUT_SECONDS
+        )
+        self.assertEqual(providers_module._DEFAULT_PROVIDER_MAX_RETRIES, 0)
+        self.assertLess(worst_case_seconds, 40.0)
+
+    def test_audit_shares_one_fifteen_second_monotonic_crawl_deadline(self) -> None:
+        class _DeadlineFetcher(_FakeFetcher):
+            def __init__(self) -> None:
+                self.deadlines: list[float | None] = []
+
+            def fetch_until(self, url: str, deadline: float | None) -> str:
+                self.deadlines.append(deadline)
+                return _HTML
+
+        service = _service()
+        fetcher = _DeadlineFetcher()
+        service.fetcher = fetcher
+        with (
+            patch.object(service_module, "monotonic", return_value=100.0),
+            patch.object(crawl_module.time, "monotonic", return_value=100.0),
+        ):
+            service.audit(
+                "https://acme.test",
+                "Acme",
+                org_id="org_1",
+                domain_id="d1",
+                samples=1,
+            )
+
+        self.assertEqual(fetcher.deadlines, [115.0, 115.0, 115.0])
+
     def test_audit_assembles_findings_queries_and_draft(self) -> None:
         report = _service().audit(
             "https://acme.test", "Acme", org_id="org_1", domain_id="d1", samples=2,

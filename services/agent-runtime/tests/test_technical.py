@@ -87,13 +87,13 @@ class TechnicalAuditTest(unittest.TestCase):
 
 
 class SiteResourceFindingsTest(unittest.TestCase):
-    def test_flags_missing_robots_and_llms(self) -> None:
+    def test_flags_missing_robots_but_not_optional_llms(self) -> None:
         findings = audit_site_resources(
             SiteResources(has_robots_txt=False, has_llms_txt=False), "https://x.com"
         )
         codes = _codes(findings)
         self.assertIn("missing_robots_txt", codes)
-        self.assertIn("missing_llms_txt", codes)
+        self.assertNotIn("missing_llms_txt", codes)
         self.assertTrue(all(f.severity == "low" for f in findings))
 
     def test_no_findings_when_both_present(self) -> None:

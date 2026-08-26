@@ -4,7 +4,8 @@ Read-only, credential-free, works on any site — the substance of a sellable
 audit and the seed of the technical-SEO engine (specs/technical-seo-engine.md).
 Page checks use the data the crawler captures (title, headings, text,
 meta-description, structured-data presence); site checks use extra fetches of
-/robots.txt and /llms.txt surfaced as a SiteResources probe.
+/robots.txt and treat /llms.txt as optional discovery metadata rather than a
+readiness defect.
 """
 from __future__ import annotations
 
@@ -134,24 +135,13 @@ def audit_site_resources(resources: SiteResources, domain: str) -> list[Finding]
     """Domain-level findings for crawl/AI-discovery files (one per domain)."""
     findings: list[Finding] = []
 
-    if not resources.has_robots_txt:
+    if resources.has_robots_txt is False:
         findings.append(
             Finding(
                 "missing_robots_txt", "low", "No robots.txt",
                 f"{domain} has no reachable robots.txt.",
                 "Add a robots.txt that references your sitemap so crawlers and AI "
                 "engines can discover every page (not required, but recommended).",
-                domain,
-            )
-        )
-
-    if not resources.has_llms_txt:
-        findings.append(
-            Finding(
-                "missing_llms_txt", "low", "No llms.txt",
-                f"{domain} has no llms.txt.",
-                "Add an llms.txt — an emerging standard that gives AI answer engines "
-                "a curated, plain-text guide to your key pages.",
                 domain,
             )
         )

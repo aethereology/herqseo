@@ -42,21 +42,38 @@ def _from_finding(finding: Finding) -> Recommendation:
 
 def _from_check(check: VisibilityCheck) -> Recommendation:
     freq = check.citation_frequency
+    if check.measured:
+        title = f"Improve {check.engine} visibility for: {check.query}"
+        rationale = (
+            f"On {check.engine}, '{check.brand}' was cited in "
+            f"{check.cited_count}/{check.samples} sampled answers ({freq:.0%})."
+        )
+        action = (
+            "Review the cited answers and publish accurate, answer-first coverage "
+            "where the site does not yet satisfy this query."
+        )
+        evidence = f"{check.engine}:{check.query}"
+    else:
+        title = f"Review answer coverage for: {check.query}"
+        rationale = (
+            f"In a general-model scenario, '{check.brand}' appeared in "
+            f"{check.cited_count}/{check.samples} generated answer samples ({freq:.0%}). "
+            "This is a hypothesis, not a live engine measurement."
+        )
+        action = (
+            "Review the site's existing coverage for this buyer question. If the business facts "
+            "support it, add a direct answer with relevant first-party evidence."
+        )
+        evidence = f"modeled-scenario:{check.query}"
     return Recommendation(
         rank=0,
         priority=1 if check.cited_count == 0 else 2,
         kind="content",
-        title=f"Win AI visibility for: {check.query}",
-        rationale=(
-            f"On {check.engine}, '{check.brand}' was cited in "
-            f"{check.cited_count}/{check.samples} sampled answers ({freq:.0%})."
-        ),
-        action=(
-            "Publish answer-first content targeting this query so AI engines "
-            "can find and cite you for it."
-        ),
+        title=title,
+        rationale=rationale,
+        action=action,
         provenance="measured" if check.measured else "estimated",
-        evidence=f"{check.engine}:{check.query}",
+        evidence=evidence,
     )
 
 

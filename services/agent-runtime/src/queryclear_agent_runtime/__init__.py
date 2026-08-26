@@ -29,13 +29,17 @@ from .technical import (
     audit_snapshot,
 )
 from .crawl import (
+    CrawlBudgetExceeded,
+    CrawlFetchError,
     HttpPageFetcher,
     Page,
     PageFetcher,
     SiteResources,
     SiteSnapshot,
+    UnsafeUrlError,
     check_site_resources,
     crawl_site,
+    normalize_public_site_url,
     parse_page,
 )
 from .monitoring import (
@@ -143,6 +147,8 @@ __all__ = [
     "CmsPublisher",
     "CmsCredentialRepository",
     "ContentPiece",
+    "CrawlBudgetExceeded",
+    "CrawlFetchError",
     "CrawlSnapshotRepository",
     "DEFAULT_MONITORING_ENGINES",
     "DEFAULT_MODEL_ROUTES",
