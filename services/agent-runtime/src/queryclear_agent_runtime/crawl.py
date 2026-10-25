@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import http.client
+import json
 import ipaddress
 import re
 import socket
@@ -29,6 +30,12 @@ class UnsafeUrlError(ValueError):
 
 class CrawlFetchError(RuntimeError):
     """A public web target could not be fetched within the crawler limits."""
+
+
+class CrawlHttpError(CrawlFetchError):
+    def __init__(self, status: int) -> None:
+        self.status = status
+        super().__init__(f"The website returned HTTP {status}.")
 
 
 class CrawlBudgetExceeded(CrawlFetchError):
@@ -245,6 +252,8 @@ class Page:
     meta_description: str = ""
     has_structured_data: bool = False
     links: tuple[str, ...] = ()
+    h1_count: int | None = None
+    invalid_json_ld: int = 0
 
 
 @dataclass(frozen=True)
@@ -281,6 +290,9 @@ class _Extractor(HTMLParser):
         self.meta_description: str = ""
         self.has_structured_data: bool = False
         self.links: list[str] = []
+        self.h1_count = 0
+        self.invalid_json_ld = 0
+        self._json_ld_parts: list[str] | None = None
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         attr = {name.lower(): (value or "") for name, value in attrs}
@@ -291,8 +303,9 @@ class _Extractor(HTMLParser):
             if href:
                 self.links.append(href)
         if tag in ("script", "style"):
-            if tag == "script" and "ld+json" in attr.get("type", "").lower():
+            if tag == "script" and attr.get("type", "").lower().strip() == "application/ld+json":
                 self.has_structured_data = True
+                self._json_ld_parts = []
             self._skip += 1
         elif tag == "meta":
             if attr.get("name", "").lower() == "description" and not self.meta_description:
@@ -300,11 +313,21 @@ class _Extractor(HTMLParser):
         elif tag == "title":
             self._in_title = True
         elif tag in ("h1", "h2", "h3"):
+            if tag == "h1":
+                self.h1_count += 1
             self._heading_tag = tag
             self._heading_buf = []
 
     def handle_endtag(self, tag: str) -> None:
         if tag in ("script", "style"):
+            if tag == "script" and self._json_ld_parts is not None:
+                try:
+                    value = json.loads("".join(self._json_ld_parts))
+                    if not isinstance(value, (dict, list)) or not value:
+                        self.invalid_json_ld += 1
+                except (ValueError, TypeError):
+                    self.invalid_json_ld += 1
+                self._json_ld_parts = None
             self._skip = max(0, self._skip - 1)
         elif tag == "title":
             self._in_title = False
@@ -317,6 +340,8 @@ class _Extractor(HTMLParser):
 
     def handle_data(self, data: str) -> None:
         if self._skip:
+            if self._json_ld_parts is not None:
+                self._json_ld_parts.append(data)
             return
         if self._in_title:
             self.title_parts.append(data)
@@ -341,6 +366,8 @@ def parse_page(url: str, html: str, *, max_text_chars: int = 2000) -> Page:
         meta_description=extractor.meta_description,
         has_structured_data=extractor.has_structured_data,
         links=tuple(dict.fromkeys(extractor.links)),
+        h1_count=extractor.h1_count,
+        invalid_json_ld=extractor.invalid_json_ld,
     )
 
 
@@ -412,20 +439,24 @@ def check_site_resources(
 ) -> SiteResources:
     """Probe a domain for /robots.txt and /llms.txt presence.
 
-    A failed fetch (404, network error) counts as absent — we only assert
-    presence when the file is reachable and non-empty.
+    Only HTTP 404/410 establish absence. Network/access failures are unknown;
+    an empty but reachable resource is still present.
     """
     base = normalize_public_site_url(domain).rstrip("/")
 
     def _present(path: str) -> bool | None:
         try:
-            return bool(_fetch_before_deadline(fetcher, base + path, deadline).strip())
+            _fetch_before_deadline(fetcher, base + path, deadline)
+            return True
         except CrawlBudgetExceeded:
             # Unknown is not absent. A budget-expired optional probe must not
             # create a false SEO defect in the prospect's report.
             return None
-        except Exception:  # any fetch failure -> treat as absent
-            return False
+        except CrawlHttpError as exc:
+            return False if exc.status in (404, 410) else None
+        except Exception:
+            # Network failures and access blocks cannot establish absence.
+            return None
 
     return SiteResources(
         has_robots_txt=_present("/robots.txt"),
@@ -478,7 +509,7 @@ class HttpPageFetcher:
                 _parsed_public_url(current)
                 continue
             if status < 200 or status >= 300:
-                raise CrawlFetchError(f"The website returned HTTP {status}.")
+                raise CrawlHttpError(status)
 
             encoding = headers.get("content-encoding", "").lower()
             if encoding not in {"", "identity"}:
