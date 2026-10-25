@@ -87,11 +87,11 @@ def audit_page(page: Page) -> list[Finding]:
                 )
             )
 
-    if not page.headings:
+    if page.h1_count == 0 or (page.h1_count is None and not page.headings):
         findings.append(
             Finding(
-                "missing_h1", "medium", "No heading found",
-                f"{page.url} has no H1–H3 headings.",
+                "missing_h1", "medium", "Missing primary heading",
+                f"{page.url} has no H1 heading in the fetched HTML.",
                 "Add a clear H1 stating the page's main topic.", page.url,
             )
         )
@@ -117,13 +117,21 @@ def audit_page(page: Page) -> list[Finding]:
             )
         )
 
+    if page.invalid_json_ld:
+        findings.append(Finding(
+            "invalid_json_ld", "medium", "Malformed structured data",
+            f"{page.url} contains {page.invalid_json_ld} JSON-LD blocks that could not be parsed as non-empty JSON objects or arrays.",
+            "Correct the JSON syntax and validate the schema against the visible page content. Syntax validity alone does not establish schema eligibility.",
+            page.url,
+        ))
+
     if not page.has_structured_data:
         findings.append(
             Finding(
                 "missing_structured_data", "medium", "No structured data",
                 f"{page.url} has no JSON-LD or microdata schema.",
-                "Add JSON-LD (e.g. Organization, WebPage, FAQPage) so engines can "
-                "reliably identify the entity and answer about it.",
+                "Consider appropriate JSON-LD for the entity and visible page content. "
+                "Use only facts supported by the page; markup does not guarantee enhanced search results.",
                 page.url,
             )
         )

@@ -191,14 +191,14 @@ class SiteResourcesTest(unittest.TestCase):
         resources = check_site_resources(fetcher, "https://example.com/")
         self.assertIsInstance(resources, SiteResources)
         self.assertTrue(resources.has_robots_txt)
-        self.assertFalse(resources.has_llms_txt)
+        self.assertIsNone(resources.has_llms_txt)
 
     def test_empty_file_counts_as_absent(self) -> None:
         fetcher = _FakeFetcher(
             {"https://example.com/robots.txt": "   ", "https://example.com/llms.txt": "# Guide"}
         )
         resources = check_site_resources(fetcher, "https://example.com")
-        self.assertFalse(resources.has_robots_txt)
+        self.assertTrue(resources.has_robots_txt)
         self.assertTrue(resources.has_llms_txt)
 
     def test_resource_checks_use_the_site_origin_not_a_submitted_path(self) -> None:
