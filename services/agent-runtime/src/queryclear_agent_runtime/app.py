@@ -153,7 +153,7 @@ def _report_json(report: AuditReport) -> dict[str, Any]:
         "sample_draft": _piece_json(report.sample_draft) if report.sample_draft else None,
         "detected_voice": report.detected_voice,
         "methodology": {
-            "version": "free-readiness-preview-v1",
+            "version": "free-readiness-preview-v2",
             "crawled_page_limit": 5,
             "visibility_method": visibility_method,
             "samples_per_query": max((check.samples for check in report.checks), default=0),

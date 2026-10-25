@@ -45,3 +45,16 @@ class EvidenceAccuracyTest(unittest.TestCase):
             def fetch(self, url): return ""
         self.assertIsNone(check_site_resources(Failed(), "https://example.com").has_robots_txt)
         self.assertTrue(check_site_resources(Empty(), "https://example.com").has_robots_txt)
+
+    def test_short_html_is_a_low_priority_review_not_a_quality_verdict(self):
+        findings = audit_page(parse_page("https://example.com", "<h1>Useful app</h1><div id='app'></div>"))
+        finding = next(f for f in findings if f.code == "thin_content")
+        self.assertEqual(finding.severity, "low")
+        self.assertIn("JavaScript", finding.recommendation)
+        self.assertIn("not a content-quality score", finding.recommendation)
+
+    def test_metadata_and_optional_schema_are_low_priority_review_items(self):
+        findings = audit_page(parse_page("https://example.com", "<h1>Services</h1>"))
+        for finding in findings:
+            if finding.code in {"missing_meta_description", "missing_structured_data"}:
+                self.assertEqual(finding.severity, "low")
