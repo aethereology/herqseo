@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
+from dataclasses import replace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -114,6 +115,21 @@ class BuildRecommendationsTest(unittest.TestCase):
         )
         self.assertEqual(len(recs), 1)
         self.assertIn("best invoice tool", recs[0].title)
+
+    def test_same_fix_preserves_every_affected_page_and_removes_exact_duplicates(self):
+        first = _finding("missing_h1", "medium")
+        second = replace(first, url="https://example.com/services", detail="Services page has no H1")
+        recs = build_recommendations([first, second, first], [])
+        self.assertEqual(len(recs), 1)
+        self.assertIn("https://example.com/services", recs[0].evidence)
+        self.assertEqual(recs[0].evidence.count("technical:missing_h1"), 2)
+        self.assertIn(second.detail, recs[0].rationale)
+        self.assertIn(first.detail, recs[0].rationale)
+
+    def test_same_title_different_fix_is_not_silently_dropped(self):
+        first = _finding("missing_h1", "medium")
+        second = replace(first, recommendation="Review a different condition")
+        self.assertEqual(len(build_recommendations([first, second], [])), 2)
 
     def test_limit_caps_and_reranks(self) -> None:
         findings = [_finding(f"f{i}", "medium") for i in range(12)]

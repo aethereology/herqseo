@@ -56,7 +56,7 @@ def audit_page(page: Page) -> list[Finding]:
             Finding(
                 "missing_title", "high", "Missing page title",
                 f"{page.url} has no <title> tag.",
-                "Add a unique, descriptive <title> (~50–60 chars).", page.url,
+                "Add a unique, concise <title> describing the page.", page.url,
             )
         )
     else:
@@ -74,7 +74,7 @@ def audit_page(page: Page) -> list[Finding]:
                 Finding(
                     "title_too_long", "low", "Title may be truncated",
                     f"Title is {len(title)} characters.",
-                    f"Keep titles ~{_TITLE_MIN}–{_TITLE_MAX} chars so they aren't cut off.",
+                    "Review the title for clarity and unnecessary repetition. This character-count heuristic does not predict truncation, which depends on display width.",
                     page.url,
                 )
             )
@@ -99,9 +99,9 @@ def audit_page(page: Page) -> list[Finding]:
     if len(page.text) < _THIN_CONTENT_CHARS:
         findings.append(
             Finding(
-                "thin_content", "medium", "Thin content",
+                "thin_content", "low", "Limited text in fetched HTML",
                 f"{page.url} has ~{len(page.text)} characters of text.",
-                "Add substantive, answer-first content AI engines can extract.",
+                "Check the rendered page before editing: JavaScript-rendered content may not appear in fetched HTML. If important information is missing, add useful content supported by business facts; this is not a content-quality score.",
                 page.url,
             )
         )
@@ -109,10 +109,9 @@ def audit_page(page: Page) -> list[Finding]:
     if not page.meta_description.strip():
         findings.append(
             Finding(
-                "missing_meta_description", "medium", "Missing meta description",
+                "missing_meta_description", "low", "Missing meta description",
                 f"{page.url} has no meta description.",
-                "Add a 140–160 char meta description summarizing the page; "
-                "search and AI engines use it to build snippets.",
+                "Add a concise, accurate summary of the page. Search engines may use it or select other page text; no character count guarantees a displayed snippet.",
                 page.url,
             )
         )
@@ -128,7 +127,7 @@ def audit_page(page: Page) -> list[Finding]:
     if not page.has_structured_data:
         findings.append(
             Finding(
-                "missing_structured_data", "medium", "No structured data",
+                "missing_structured_data", "low", "No structured data detected",
                 f"{page.url} has no JSON-LD or microdata schema.",
                 "Consider appropriate JSON-LD for the entity and visible page content. "
                 "Use only facts supported by the page; markup does not guarantee enhanced search results.",
