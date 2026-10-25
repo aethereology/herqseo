@@ -110,6 +110,8 @@ def _report_json(report: AuditReport) -> dict[str, Any]:
     return {
         "domain_url": report.domain_url,
         "page_title": report.page_title,
+        "crawled_urls": list(report.crawled_urls),
+        "audited_at": report.audited_at,
         "findings": [
             {
                 "code": f.code,

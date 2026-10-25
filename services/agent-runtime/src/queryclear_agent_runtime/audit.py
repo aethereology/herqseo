@@ -23,3 +23,5 @@ class AuditReport:
     recommendations: tuple[Recommendation, ...] = ()
     # Brand voice detected from the prospect's own site (when a sample was drafted).
     detected_voice: str | None = None
+    crawled_urls: tuple[str, ...] = ()
+    audited_at: str | None = None

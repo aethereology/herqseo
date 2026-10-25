@@ -67,7 +67,7 @@ def _from_check(check: VisibilityCheck) -> Recommendation:
         evidence = f"modeled-scenario:{check.query}"
     return Recommendation(
         rank=0,
-        priority=1 if check.cited_count == 0 else 2,
+        priority=(1 if check.cited_count == 0 else 2) if check.measured else 3,
         kind="content",
         title=title,
         rationale=rationale,
@@ -87,9 +87,9 @@ def build_recommendations(
     """Merge technical findings and below-threshold visibility gaps into one
     ranked, explainable action list, capped at `limit`.
 
-    Sort order: priority bucket, then measured before estimated at the same
-    bucket (a deterministic on-page fact beats an estimated visibility gap),
-    then title for stability.
+    Modeled scenarios are low-priority review hypotheses. Verified technical
+    issues take precedence over speculative model gaps. Sort by priority,
+    measured evidence, then title for stability.
     """
     items = [_from_finding(f) for f in findings]
     items += [_from_check(c) for c in checks if c.citation_frequency < threshold]
