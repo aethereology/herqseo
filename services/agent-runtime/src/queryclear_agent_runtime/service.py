@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from time import monotonic
@@ -229,6 +231,8 @@ class LoopService:
             sample_draft=sample,
             recommendations=tuple(recommendations),
             detected_voice=detected_voice,
+            crawled_urls=tuple(page.url for page in snapshot.pages),
+            audited_at=datetime.now(timezone.utc).isoformat(),
         )
 
     def get_draft(self, draft_id: str, *, org_id: str) -> ContentPiece:

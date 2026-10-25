@@ -253,9 +253,10 @@ class PublicFetchSecurityTest(unittest.TestCase):
         with self.assertRaises(UnsafeUrlError):
             crawl_module._public_addresses("example.com", 443)
 
+    @patch.object(crawl_module.time, "monotonic", return_value=100.0)
     @patch.object(crawl_module.http.client, "HTTPConnection")
     @patch.object(crawl_module.socket, "getaddrinfo")
-    def test_http_connection_is_pinned_to_the_validated_address(self, resolve, connection_cls) -> None:
+    def test_http_connection_is_pinned_to_the_validated_address(self, resolve, connection_cls, _clock) -> None:
         resolve.return_value = [
             (crawl_module.socket.AF_INET, crawl_module.socket.SOCK_STREAM, 6, "", ("93.184.216.34", 80)),
         ]

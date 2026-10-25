@@ -95,6 +95,12 @@ class AuditTest(unittest.TestCase):
         self.assertIsInstance(report, AuditReport)
         self.assertEqual(report.domain_url, "https://acme.test")
         self.assertEqual(report.page_title, "AcmeAcme")
+        self.assertEqual(report.crawled_urls, ("https://acme.test/",))
+        self.assertTrue(report.audited_at.endswith("+00:00"))
+        from queryclear_agent_runtime.app import _report_json
+        payload = _report_json(report)
+        self.assertEqual(payload["crawled_urls"], list(report.crawled_urls))
+        self.assertEqual(payload["audited_at"], report.audited_at)
         # technical findings caught the duplicated title + thin content
         codes = {f.code for f in report.findings}
         self.assertIn("duplicated_title", codes)

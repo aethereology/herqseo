@@ -63,6 +63,14 @@ class BuildRecommendationsTest(unittest.TestCase):
         self.assertIn("not a live engine measurement", recs[0].rationale)
         self.assertNotIn("chatgpt", recs[0].rationale.lower())
 
+    def test_single_modeled_absence_does_not_outrank_verified_issues(self) -> None:
+        recs = build_recommendations(
+            [_finding("missing_schema", "medium"), _finding("metadata", "low")],
+            [_check("buyer question", 0, 1)],
+        )
+        self.assertEqual([r.kind for r in recs], ["technical", "technical", "content"])
+        self.assertEqual(recs[-1].priority, 3)
+
     def test_strong_visibility_is_not_a_recommendation(self) -> None:
         recs = build_recommendations([], [_check("we are cited", 3, 3)], threshold=0.5)
         self.assertEqual(recs, [])
@@ -70,10 +78,10 @@ class BuildRecommendationsTest(unittest.TestCase):
     def test_zero_citation_outranks_partial_citation(self) -> None:
         recs = build_recommendations(
             [],
-            [_check("partial", 1, 4), _check("zero", 0, 4)],
+            [_check("partial", 1, 4, measured=True), _check("zero", 0, 4, measured=True)],
             threshold=0.9,
         )
-        self.assertEqual(recs[0].title, "Review answer coverage for: zero")
+        self.assertEqual(recs[0].title, "Improve chatgpt visibility for: zero")
 
     def test_measured_technical_outranks_estimated_content_at_same_priority(self) -> None:
         # high-severity technical and a zero-citation gap are both priority 1;
