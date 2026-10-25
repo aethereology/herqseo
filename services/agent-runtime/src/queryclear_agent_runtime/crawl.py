@@ -325,7 +325,7 @@ class _Extractor(HTMLParser):
                     value = json.loads("".join(self._json_ld_parts))
                     if not isinstance(value, (dict, list)) or not value:
                         self.invalid_json_ld += 1
-                except (ValueError, TypeError):
+                except (ValueError, TypeError, RecursionError):
                     self.invalid_json_ld += 1
                 self._json_ld_parts = None
             self._skip = max(0, self._skip - 1)

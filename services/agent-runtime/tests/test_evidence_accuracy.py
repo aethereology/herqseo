@@ -1,6 +1,7 @@
 """Offline regression corpus: markup facts must not be inferred from unrelated signals."""
 import sys
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from queryclear_agent_runtime.crawl import parse_page, check_site_resources, CrawlHttpError
@@ -19,6 +20,10 @@ class EvidenceAccuracyTest(unittest.TestCase):
             with self.subTest(content=content):
                 self.assertIn("invalid_json_ld", self.codes(f'<script type="application/ld+json">{content}</script>'))
         self.assertNotIn("invalid_json_ld", self.codes('<script type="application/ld+json">{"@type":"WebPage"}</script>'))
+
+    def test_parser_depth_limit_does_not_crash_the_audit(self):
+        with patch("queryclear_agent_runtime.crawl.json.loads", side_effect=RecursionError):
+            self.assertIn("invalid_json_ld", self.codes('<script type="application/ld+json">[]</script>'))
 
     def test_script_text_does_not_become_page_evidence(self):
         page = parse_page("https://example.com", '<script type="application/ld+json">{"name":"Fake headline"}</script><h1>Real headline</h1>')
