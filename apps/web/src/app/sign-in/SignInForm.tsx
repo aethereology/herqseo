@@ -15,7 +15,6 @@ export function SignInForm() {
           name="email"
           type="email"
           autoComplete="email"
-          defaultValue="operator@queryclear.dev"
           required
         />
       </label>
@@ -26,11 +25,10 @@ export function SignInForm() {
           name="code"
           type="password"
           autoComplete="current-password"
-          defaultValue="queryclear-dev"
           required
         />
       </label>
-      {error ? <p className="text-sm font-medium text-red-700">{error}</p> : null}
+      {error ? <p role="alert" className="text-sm font-medium text-red-700">{error}</p> : null}
       <button
         className="rounded bg-ink px-4 py-2.5 text-sm font-semibold text-paper transition hover:bg-moss disabled:cursor-not-allowed disabled:opacity-60"
         type="submit"

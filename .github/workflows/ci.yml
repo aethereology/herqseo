@@ -20,8 +20,10 @@ jobs:
       # The Python suite's DB tests import SQLAlchemy; install the runtime with
       # its db extra so they run (on SQLite) instead of erroring on import.
       - run: pip install -e "./services/agent-runtime[db]"
-      - run: npm install
+      - run: npm ci
+      - run: npm audit --omit=dev --audit-level=high
       - run: npm run ci
+      - run: npm run build
 
   postgres-integration:
     runs-on: ubuntu-latest

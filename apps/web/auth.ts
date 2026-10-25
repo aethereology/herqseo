@@ -1,5 +1,6 @@
 import NextAuth, { type NextAuthConfig, type NextAuthResult } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
+import { developmentAuthEnabled } from "./src/lib/auth-policy";
 import {
   AUTONOMY_MODE_KEYS,
   isPlanTier,
@@ -69,7 +70,7 @@ export const authConfig = {
   session: {
     strategy: "jwt"
   },
-  providers: [
+  providers: developmentAuthEnabled() ? [
     Credentials({
       name: "Development credentials",
       credentials: {
@@ -77,6 +78,7 @@ export const authConfig = {
         code: { label: "Access code", type: "password" }
       },
       authorize(credentials) {
+        if (!developmentAuthEnabled()) return null;
         const email = String(credentials?.email ?? "").trim().toLowerCase();
         const code = String(credentials?.code ?? "");
         const allowedEmail = requiredEnv("QUERYCLEAR_DEV_USER_EMAIL", "operator@queryclear.dev")
@@ -97,16 +99,17 @@ export const authConfig = {
         };
       }
     })
-  ],
+  ] : [],
   callbacks: {
     jwt({ token, user }) {
+      if (!developmentAuthEnabled()) { delete token.tenant; return token; }
       if (user && "tenant" in user) {
         token.tenant = user.tenant;
       }
       return token;
     },
     session({ session, token }) {
-      session.tenant = token.tenant;
+      session.tenant = developmentAuthEnabled() ? token.tenant : undefined;
       return session;
     }
   }
