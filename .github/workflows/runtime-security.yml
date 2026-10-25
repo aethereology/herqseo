@@ -1,0 +1,22 @@
+name: Runtime dependency security
+on:
+  pull_request:
+    paths:
+      - 'services/agent-runtime/requirements.txt'
+      - '.github/workflows/runtime-security.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: '31 9 * * 1'
+permissions:
+  contents: read
+jobs:
+  audit-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install pip-audit==2.10.1
+      - run: python -m pip_audit -r services/agent-runtime/requirements.txt
